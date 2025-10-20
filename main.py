@@ -88,11 +88,11 @@ def main() -> None:
                          f"{validation_results['des_df_rows_used']:,}")
                 st.metric("des_df Usage", 
                          f"{validation_results['des_df_usage_pct']:.1f}%")
-            with col3:
-                st.metric("MICAP Events", 
-                         f"{len(df_manager.micap_df)}")
-                st.metric("Parts in Available", 
-                         f"{len(df_manager.stage_four_available_df)}")
+            #with col3:
+            #    st.metric("MICAP Events", 
+            #             f"{len(df_manager.micap_df)}")
+            #    st.metric("Parts in Available", 
+            #             f"{len(df_manager.stage_four_available_df)}")
             
             # Display warnings if any
             if validation_results['warnings']:
@@ -109,17 +109,17 @@ def main() -> None:
             with st.expander("des_df (Aircraft Event Log) - First 10 Rows"):
                 st.dataframe(df_manager.des_df.head(10))
             
-            with st.expander("micap_df (MICAP Events)"):
-                if len(df_manager.micap_df) > 0:
-                    st.dataframe(df_manager.micap_df)
-                else:
-                    st.info("No MICAP events occurred during simulation.")
+            #with st.expander("micap_df (MICAP Events)"):
+             #   if len(df_manager.micap_df) > 0:
+             #       st.dataframe(df_manager.micap_df)
+             #   else:
+             #       st.info("No MICAP events occurred during simulation.")
             
-            with st.expander("stage_four_available_df (Parts Waiting)"):
-                if len(df_manager.stage_four_available_df) > 0:
-                    st.dataframe(df_manager.stage_four_available_df)
-                else:
-                    st.info("No parts currently in available inventory.")
+            #with st.expander("stage_four_available_df (Parts Waiting)"):
+             #   if len(df_manager.stage_four_available_df) > 0:
+              #      st.dataframe(df_manager.stage_four_available_df)
+             #   else:
+             #       st.info("No parts currently in available inventory.")
             
             # --- Plot Results ---
             st.subheader("📈 Stage Duration Distributions")
