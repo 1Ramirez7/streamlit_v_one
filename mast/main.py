@@ -42,12 +42,12 @@ def main() -> None:
     if run_button:
         with st.spinner("Running simulation..."):
             # Set random seed for reproducibility
-            np.random.seed(params['random_seed'])
+            np.random.seed(123)
             
             # Create DataFrameManager
-            df_manager = DataFrameManager( # params are passed to DataFrameManager purely for calc df sizes. 
-                n_total_parts=params['n_total_parts'], # maybe we should use only one mean value for calc df size
-                n_total_aircraft=params['n_total_aircraft'], # params are you to be changing so its ideal 
+            df_manager = DataFrameManager(
+                n_total_parts=params['n_total_parts'],
+                n_total_aircraft=params['n_total_aircraft'],
                 sim_time=params['sim_time'],
                 sone_mean=params['sone_mean'],
                 stwo_mean=params['stwo_mean'],
@@ -66,8 +66,7 @@ def main() -> None:
                 sthree_sd=params['sthree_sd'],
                 sfour_mean=params['sfour_mean'],
                 sfour_sd=params['sfour_sd'],
-                sim_time=params['sim_time'],
-                depot_capacity=params['depot_capacity']
+                sim_time=params['sim_time']
             )
             
             # Run simulation
@@ -89,6 +88,11 @@ def main() -> None:
                          f"{validation_results['des_df_rows_used']:,}")
                 st.metric("des_df Usage", 
                          f"{validation_results['des_df_usage_pct']:.1f}%")
+            #with col3:
+            #    st.metric("MICAP Events", 
+            #             f"{len(df_manager.micap_df)}")
+            #    st.metric("Parts in Available", 
+            #             f"{len(df_manager.condition_a_df)}")
             
             # Display warnings if any
             if validation_results['warnings']:
@@ -105,9 +109,17 @@ def main() -> None:
             with st.expander("des_df (Aircraft Event Log) - First 10 Rows"):
                 st.dataframe(df_manager.des_df.head(10))
             
-            if 'daily_metrics' in validation_results:
-                with st.expander("daily_metrics (Daily Metrics) - First 10 Rows"):
-                    st.dataframe(validation_results['daily_metrics'].head(10))
+            #with st.expander("micap_df (MICAP Events)"):
+             #   if len(df_manager.micap_df) > 0:
+             #       st.dataframe(df_manager.micap_df)
+             #   else:
+             #       st.info("No MICAP events occurred during simulation.")
+            
+            #with st.expander("condition_a_df (Parts Waiting)"):
+             #   if len(df_manager.condition_a_df) > 0:
+              #      st.dataframe(df_manager.condition_a_df)
+             #   else:
+             #       st.info("No parts currently in available inventory.")
             
             # --- Plot Results ---
             st.subheader("📈 Stage Duration Distributions")
@@ -138,14 +150,14 @@ def main() -> None:
             st.subheader("💾 Download Results")
             
             # Combined des_df and sim_df into an Excel file with separate tabs
+            # Excluded micap_df from download (MICAP data already in des_df)
+            # TODO: Inspect full codebase impact before removing micap_df entirely
             from io import BytesIO
             
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_manager.sim_df.to_excel(writer, sheet_name='sim_df', index=False)
                 df_manager.des_df.to_excel(writer, sheet_name='des_df', index=False)
-                if 'daily_metrics' in validation_results:
-                    validation_results['daily_metrics'].to_excel(writer, sheet_name='daily_metrics', index=False)
             
             excel_data = output.getvalue()
             

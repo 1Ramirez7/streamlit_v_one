@@ -8,54 +8,54 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-def plot_stage_one_duration(sim_df):
-    """Simple histogram of Stage 1 (Fleet) durations."""
-    durations = sim_df['stage_one_duration'].dropna()
+def plot_fleet_duration(sim_df):
+    """Simple histogram of Fleet (Fleet) durations."""
+    durations = sim_df['fleet_duration'].dropna()
     
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.hist(durations, bins=30, color='steelblue', edgecolor='black', alpha=0.7)
     ax.set_xlabel('Duration (days)')
     ax.set_ylabel('Frequency')
-    ax.set_title(f'Stage 1: Fleet Duration Distribution\nMean: {durations.mean():.2f} days')
+    ax.set_title(f'Fleet: Fleet Duration Distribution\nMean: {durations.mean():.2f} days')
     ax.grid(axis='y', alpha=0.3)
     
     return fig
 
-def plot_stage_two_duration(sim_df):
-    """Simple histogram of Stage 2 (Condition F) durations."""
-    durations = sim_df['stage_two_duration'].dropna()
+def plot_condition_f_duration(sim_df):
+    """Simple histogram of Condition F (Condition F) durations."""
+    durations = sim_df['condition_f_duration'].dropna()
     
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.hist(durations, bins=30, color='coral', edgecolor='black', alpha=0.7)
     ax.set_xlabel('Duration (days)')
     ax.set_ylabel('Frequency')
-    ax.set_title(f'Stage 2: Condition F Duration Distribution\nMean: {durations.mean():.2f} days')
+    ax.set_title(f'Condition F: Condition F Duration Distribution\nMean: {durations.mean():.2f} days')
     ax.grid(axis='y', alpha=0.3)
     
     return fig
 
-def plot_stage_three_duration(sim_df):
-    """Simple histogram of Stage 3 (Depot) durations."""
-    durations = sim_df['stage_three_duration'].dropna()
+def plot_depot_duration(sim_df):
+    """Simple histogram of Depot durations."""
+    durations = sim_df['depot_duration'].dropna()
     
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.hist(durations, bins=30, color='mediumseagreen', edgecolor='black', alpha=0.7)
     ax.set_xlabel('Duration (days)')
     ax.set_ylabel('Frequency')
-    ax.set_title(f'Stage 3: Depot Duration Distribution\nMean: {durations.mean():.2f} days')
+    ax.set_title(f'Depot Duration Distribution\nMean: {durations.mean():.2f} days')
     ax.grid(axis='y', alpha=0.3)
     
     return fig
 
-def plot_stage_four_install_duration(sim_df):
-    """Simple histogram of Stage 4 Install durations."""
-    durations = sim_df['stage_four_install_duration'].dropna()
+def plot_install_duration(sim_df):
+    """Simple histogram of Condition A Install durations."""
+    durations = sim_df['install_duration'].dropna()
     
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.hist(durations, bins=30, color='mediumpurple', edgecolor='black', alpha=0.7)
     ax.set_xlabel('Duration (days)')
     ax.set_ylabel('Frequency')
-    ax.set_title(f'Stage 4: Install Duration Distribution\nMean: {durations.mean():.2f} days')
+    ax.set_title(f'Condition A: Install Duration Distribution\nMean: {durations.mean():.2f} days')
     ax.grid(axis='y', alpha=0.3)
     
     return fig

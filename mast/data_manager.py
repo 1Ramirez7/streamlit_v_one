@@ -45,7 +45,6 @@ class DataFrameManager:
         # Create all DataFrames
         self.aircraft_df = self._create_aircraft_df()
         self.condition_a_df = self._create_condition_a_df()
-        self.new_part_df = self._create_new_part_df() # adding to handle new part logic
         self.sim_df = self._create_sim_df()
         self.des_df = self._create_des_df()
         self.micap_df = self._create_micap_df()
@@ -88,17 +87,15 @@ class DataFrameManager:
           part_id = seq_len(n_total_aircraft),
           sim_id = seq_len(n_total_aircraft)
         )
-        NOTe: python code starts index at 0 vs r that starts at 1. 
-        So we will have part_id and ac_id 0.
         """
         # First n_total_aircraft parts are paired 1-to-1 with aircraft
         return pd.DataFrame({
-            'des_id': range(self.n_total_aircraft),
-            'ac_id': range(self.n_total_aircraft),
+            'des_id': range(1, self.n_total_aircraft + 1),
+            'ac_id': range(1, self.n_total_aircraft + 1),
             'aircraft_name': ['strike'] * self.n_total_aircraft,
             'micap': ['no'] * self.n_total_aircraft,
-            'part_id': range(self.n_total_aircraft),
-            'sim_id': range(self.n_total_aircraft)
+            'part_id': range(1, self.n_total_aircraft + 1),
+            'sim_id': range(1, self.n_total_aircraft + 1)
         })
     
     def _create_condition_a_df(self):
@@ -119,8 +116,8 @@ class DataFrameManager:
         """
         # Calculate leftover parts (not assigned to aircraft initially)
         if self.n_total_parts > self.n_total_aircraft:
-            leftover_parts = list(range(self.n_total_aircraft, 
-                                       self.n_total_parts))
+            leftover_parts = list(range(self.n_total_aircraft + 1, 
+                                       self.n_total_parts + 1))
         else:
             leftover_parts = []
         
@@ -181,52 +178,7 @@ class DataFrameManager:
                 'cycle': pd.Series(dtype='Int64'),
                 'condemn': pd.Series(dtype='object')
             })
-        
-    # adding code for new_part_df
-    def _create_new_part_df(self):
-        """
-        Create DataFrame for tracking the next available part_id to be created.
-        
-        R code reference: This is NEW logic not in main_r-code.R
-        Purpose: Track next part_id when dynamic part creation is needed
-        
-        Initial state: Single row with part_id = n_total_parts (30 if n_total_parts=30)
-        When a new part is created:
-        1. Use the part_id from this row (e.g., 30)
-        2. Create the new part with that ID
-        3. Add a new row with part_id = previous + 1 (e.g., 31)
-        
-        Returns:
-            pd.DataFrame: Single-row DataFrame with only part_id populated
-        """
-        # Create single row with just part_id = n_total_parts
-        return pd.DataFrame({
-            'sim_id': [np.nan],
-            'part_id': [self.n_total_parts],  # Start at next available ID
-            'desone_id': [np.nan],
-            'acone_id': [np.nan],
-            'micap': [np.nan],
-            'fleet_duration': [np.nan],
-            'condition_f_duration': [np.nan],
-            'depot_duration': [np.nan],
-            'condition_a_duration': [np.nan],
-            'install_duration': [np.nan],
-            'fleet_start': [np.nan],
-            'fleet_end': [np.nan],
-            'condition_f_start': [np.nan],
-            'condition_f_end': [np.nan],
-            'depot_start': [np.nan],
-            'depot_end': [np.nan],
-            'destwo_id': [np.nan],
-            'actwo_id': [np.nan],
-            'condition_a_start': [np.nan],
-            'condition_a_end': [np.nan],
-            'install_start': [np.nan],
-            'install_end': [np.nan],
-            'cycle': [np.nan],
-            'condemn': [np.nan]
-        })
-
+    
     def _create_sim_df(self):
         """
         R code reference (main_r-code.R lines 97-122):
@@ -386,60 +338,3 @@ class DataFrameManager:
             )
         
         return validation_results
-    
-    def create_daily_metrics(self):
-        """
-        Create time-series dataframe tracking stage counts and flow events per day.
-        Called after simulation completes and dataframes are trimmed.
-        """
-        sim = self.sim_df
-        des = self.des_df
-        cond_a = self.condition_a_df
-        micap = self.micap_df
-        
-        metrics = []
-        for day in range(1, self.sim_time + 1):
-            # WIP counts (parts currently in stage at time=day)
-            wip_fleet = ((sim['fleet_start'] <= day) & (day < sim['fleet_end'])).sum()
-            wip_condition_f = ((sim['condition_f_start'] <= day) & (day < sim['condition_f_end'])).sum()
-            wip_depot = ((sim['depot_start'] <= day) & (day < sim['depot_end'])).sum()
-            wip_condition_a = ((cond_a['condition_a_start'] <= day) & (day < cond_a['condition_a_end'])).sum()
-            wip_install = ((sim['install_start'] <= day) & (day < sim['install_end'])).sum()
-            
-            # Flow events (stage transitions occurring on this day)
-            parts_breaking = (sim['fleet_end'].round() == day).sum()
-            parts_leaving_condition_f = (sim['condition_f_end'].round() == day).sum()
-            parts_entering_depot = (sim['depot_start'].round() == day).sum()
-            parts_completing_depot = (sim['depot_end'].round() == day).sum()
-            parts_entering_condition_a = (cond_a['condition_a_start'].round() == day).sum()
-            parts_leaving_condition_a = (cond_a['condition_a_end'].round() == day).sum()
-            
-            # Aircraft metrics
-            aircraft_in_fleet = ((des['fleet_start'] <= day) & (day < des['fleet_end'])).sum()
-            aircraft_in_micap = ((micap['micap_start'] <= day) & (day < micap['micap_end'])).sum()
-            aircraft_entering_micap = (micap['micap_start'].round() == day).sum()
-            aircraft_leaving_micap = (micap['micap_end'].round() == day).sum()
-            
-            metrics.append({
-                'day': day,
-                # WIP
-                'wip_fleet': wip_fleet,
-                'wip_condition_f': wip_condition_f,
-                'wip_depot': wip_depot,
-                'wip_condition_a': wip_condition_a,
-                'wip_install': wip_install,
-                # Flow events
-                'parts_breaking': parts_breaking,
-                'parts_leaving_condition_f': parts_leaving_condition_f,
-                'parts_entering_depot': parts_entering_depot,
-                'parts_completing_depot': parts_completing_depot,
-                'parts_entering_condition_a': parts_entering_condition_a,
-                'parts_leaving_condition_a': parts_leaving_condition_a,
-                # Aircraft
-                'aircraft_in_fleet': aircraft_in_fleet,
-                'aircraft_in_micap': aircraft_in_micap,
-                'aircraft_entering_micap': aircraft_entering_micap,
-                'aircraft_leaving_micap': aircraft_leaving_micap
-            })
-        
-        return pd.DataFrame(metrics)
