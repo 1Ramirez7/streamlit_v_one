@@ -64,6 +64,35 @@ def render_sidebar():
         help="Maximum number of parts that can be in the depot at once"
     )
 
+    # NEW: Part condemn parameters
+    st.sidebar.subheader("Part Condemn Parameters")
+    
+    condemn_cycle = st.sidebar.number_input(
+        "Condemn at Cycle",
+        min_value=1,
+        value=20,
+        step=1,
+        help="Cycle number at which parts are condemned and replaced"
+    )
+    
+    condemn_depot_fraction = st.sidebar.number_input(
+        "Condemned Depot Time Fraction",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.10,
+        step=0.01,
+        format="%.2f",
+        help="Fraction of normal depot time for condemned parts (e.g., 0.10 = 10% of normal time). The norm.dist will still be done and result will be multiply by 10%."
+    )
+
+    part_order_lag = st.sidebar.number_input(
+        "Part Order Lag (days)",
+        min_value=0,
+        value=100,
+        step=1,
+        help="Time delay between ordering a new part and it arriving in Condition A"
+    )
+
     random_seed = st.sidebar.number_input(
         "Random Seed",
         min_value=1,
@@ -78,17 +107,9 @@ def render_sidebar():
     sone_mean = st.sidebar.number_input("Mean Duration", value=30.0, min_value=0.0)
     sone_sd = st.sidebar.number_input("Std Dev", value=10.0, min_value=0.0, key="sone_sd")
     
-    st.sidebar.subheader("Condition F: Condition F")
-    stwo_mean = st.sidebar.number_input("Mean Duration", value=3.0, min_value=0.0, key="stwo_mean")
-    stwo_sd = st.sidebar.number_input("Std Dev", value=0.5, min_value=0.0, key="stwo_sd")
-    
     st.sidebar.subheader("Depot")
     sthree_mean = st.sidebar.number_input("Mean Duration", value=1.0, min_value=0.0, key="sthree_mean")
     sthree_sd = st.sidebar.number_input("Std Dev", value=0.2, min_value=0.0, key="sthree_sd")
-    
-    st.sidebar.subheader("Condition A: Install")
-    sfour_mean = st.sidebar.number_input("Mean Duration", value=1.0, min_value=0.0, key="sfour_mean")
-    sfour_sd = st.sidebar.number_input("Std Dev", value=0.5, min_value=0.0, key="sfour_sd")
     
     return {
         'n_total_parts': n_total_parts,
@@ -97,13 +118,12 @@ def render_sidebar():
         'warmup_periods': warmup_periods,  # NEW - to plot only analysis periods
         'analysis_periods': analysis_periods,  # NEW - to plot only analysis periods
         'depot_capacity': depot_capacity,
+        'condemn_cycle': condemn_cycle,  # new params for depot logic
+        'condemn_depot_fraction': condemn_depot_fraction, # new params for depot logic
+        'part_order_lag': part_order_lag, # new params for depot logic
         'random_seed': random_seed,
         'sone_mean': sone_mean,
         'sone_sd': sone_sd,
-        'stwo_mean': stwo_mean,
-        'stwo_sd': stwo_sd,
         'sthree_mean': sthree_mean,
-        'sthree_sd': sthree_sd,
-        'sfour_mean': sfour_mean,
-        'sfour_sd': sfour_sd
+        'sthree_sd': sthree_sd
     }

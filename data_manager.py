@@ -24,7 +24,7 @@ class DataFrameManager:
     """
     
     def __init__(self, n_total_parts, n_total_aircraft, sim_time,
-                 sone_mean, stwo_mean, sthree_mean, sfour_mean):
+                 sone_mean, sthree_mean):
         """
         Initialize DataFrameManager with simulation parameters.
         
@@ -35,9 +35,7 @@ class DataFrameManager:
         self.n_total_aircraft = n_total_aircraft
         self.sim_time = sim_time
         self.sone_mean = sone_mean
-        self.stwo_mean = stwo_mean
         self.sthree_mean = sthree_mean
-        self.sfour_mean = sfour_mean
         
         # Calculate pre-allocation sizes
         self.max_sim_events, self.max_des_events = self._calculate_max_events()
@@ -64,8 +62,7 @@ class DataFrameManager:
         max_des_events <- n_total_aircraft * max_cycles_per_part * 2
         """
         # Calculate minimum cycle time
-        min_cycle_time = (self.sone_mean + self.stwo_mean + 
-                         self.sthree_mean + self.sfour_mean)
+        min_cycle_time = (self.sone_mean + self.sthree_mean)
         
         # Maximum possible cycles per part
         max_cycles_per_part = ceil(self.sim_time / min_cycle_time)

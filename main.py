@@ -50,9 +50,7 @@ def main() -> None:
                 n_total_aircraft=params['n_total_aircraft'], # params are you to be changing so its ideal 
                 sim_time=params['sim_time'],
                 sone_mean=params['sone_mean'],
-                stwo_mean=params['stwo_mean'],
-                sthree_mean=params['sthree_mean'],
-                sfour_mean=params['sfour_mean']
+                sthree_mean=params['sthree_mean']
             )
             
             # Create SimulationEngine
@@ -60,14 +58,13 @@ def main() -> None:
                 df_manager=df_manager,
                 sone_mean=params['sone_mean'],
                 sone_sd=params['sone_sd'],
-                stwo_mean=params['stwo_mean'],
-                stwo_sd=params['stwo_sd'],
                 sthree_mean=params['sthree_mean'],
                 sthree_sd=params['sthree_sd'],
-                sfour_mean=params['sfour_mean'],
-                sfour_sd=params['sfour_sd'],
                 sim_time=params['sim_time'],
-                depot_capacity=params['depot_capacity']
+                depot_capacity=params['depot_capacity'], # new params for depot logic
+                condemn_cycle=params['condemn_cycle'],  # new params for depot logic
+                condemn_depot_fraction=params['condemn_depot_fraction'],  # new params for depot logic
+                part_order_lag=params['part_order_lag']  # new params for depot logic
             )
             
             # Run simulation

@@ -19,8 +19,8 @@ class SimulationEngine:
     Contains formulas for stage durations and helper functions for event management.
     """
     
-    def __init__(self, df_manager, sone_mean, sone_sd, stwo_mean, stwo_sd,
-                 sthree_mean, sthree_sd, sfour_mean, sfour_sd, sim_time, depot_capacity):
+    def __init__(self, df_manager, sone_mean, sone_sd,
+                 sthree_mean, sthree_sd, sim_time, depot_capacity,condemn_cycle, condemn_depot_fraction,  part_order_lag):
         """
         Initialize SimulationEngine with DataFrameManager and stage parameters.
         
@@ -33,19 +33,22 @@ class SimulationEngine:
             sthree_mean, sthree_sd: Depot normal distribution parameters
             sfour_mean, sfour_sd: Condition A (Install) normal distribution parameters
             sim_time: Total simulation time
+        'depot_capacity': depot_capacity,
+        'condemn_cycle': condemn_cycle,  # new params for depot logic
+        'condemn_depot_fraction': condemn_depot_fraction, # new params for depot logic
+        'part_order_lag': part_order_lag, # new params for depot logic
         """
         self.df = df_manager
         self.sone_mean = sone_mean
         self.sone_sd = sone_sd
-        self.stwo_mean = stwo_mean
-        self.stwo_sd = stwo_sd
         self.sthree_mean = sthree_mean
         self.sthree_sd = sthree_sd
-        self.sfour_mean = sfour_mean
-        self.sfour_sd = sfour_sd
         self.sim_time = sim_time
-        self.depot_capacity: int = depot_capacity # adding depot capacity code
         self.active_depot: list = []
+        self.depot_capacity: int = depot_capacity # adding depot capacity code
+        self.condemn_cycle: int = condemn_cycle  # NEW: Store condemn cycle
+        self.condemn_depot_fraction: float = condemn_depot_fraction # NEW: Store depot time fraction
+        self.part_order_lag: int = part_order_lag  # NEW: Store lag parameter
     
     # ==========================================================================
     # STAGE DURATION FORMULAS
@@ -61,11 +64,9 @@ class SimulationEngine:
     
     def calculate_condition_f_duration(self):
         """
-        R code reference (main_r-code.R lines 1-11, example line 343):
-        
-        d2 <- max(0, rnorm(1, mean = stwo_mean, sd = stwo_sd))
+        Not in use, delete or leave as spacer
         """
-        return max(0, np.random.normal(self.stwo_mean, self.stwo_sd))
+        return 0
     
     def calculate_depot_duration(self):
         """
@@ -80,7 +81,6 @@ class SimulationEngine:
         There is not install duration to account for so leaving old install
         duration formula set to zero. Laving it as a sapcer for possibly other uses. 
         """
-        #return max(0, np.random.normal(self.sfour_mean, self.sfour_sd))
         return 0 
     
     # ==========================================================================
@@ -278,11 +278,11 @@ class SimulationEngine:
         cycle = self.df.sim_df.at[sim_row_idx, 'cycle']
         
         # Check if cycle = 20 for condemn logic
-        if cycle == 20:
+        if cycle == self.condemn_cycle:
             # Mark part as condemned
             self.df.sim_df.at[sim_row_idx, 'condemn'] = 'yes'
             # Condemned parts take 10% of normal depot time
-            d3 = self.calculate_depot_duration() * 0.10
+            d3 = self.calculate_depot_duration() * self.condemn_depot_fraction
             
             # --- Order new part logic ---
             # Calculate depot_end for the condemned part
@@ -297,7 +297,7 @@ class SimulationEngine:
             new_part_id = self.df.new_part_df.at[empty_row_idx, 'part_id']
             
             # Edit this row: set condition_a_start and cycle
-            self.df.new_part_df.at[empty_row_idx, 'condition_a_start'] = depot_end_condemned + 100
+            self.df.new_part_df.at[empty_row_idx, 'condition_a_start'] = depot_end_condemned + self.part_order_lag
             self.df.new_part_df.at[empty_row_idx, 'cycle'] = 0
             
             # Add new row with only part_id = previous part_id + 1
