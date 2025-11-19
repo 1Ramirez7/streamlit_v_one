@@ -24,7 +24,7 @@ warnings.simplefilter("ignore", category=FutureWarning)
 
 from data_manager import DataFrameManager
 from simulation_engine import SimulationEngine
-from ui_components import render_sidebar
+from ui.ui_components import render_sidebar
 from ui.cycle import render_cycle
 from ui.wip_plots import render_wip_plots
 from utils import calculate_initial_allocation
