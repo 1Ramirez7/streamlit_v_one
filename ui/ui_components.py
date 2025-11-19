@@ -10,6 +10,36 @@ import numpy as np
 def render_sidebar():
     """Render sidebar with simulation parameters matching main_r-code.R exactly."""
     
+        # Simulation time broken into 3 components
+    st.sidebar.header("Simulation Timeline")
+    warmup_periods = st.sidebar.number_input(
+        "Warmup Periods (days)",
+        min_value=0,
+        value=100,
+        step=1,
+        help="Number of days for warmup calculations. The initial calculations distort the actual representation of a DES due to fleet start time is the same for the first set of parts and aircraft in fleet is all the same. Also all the parts starting in Condition A also start at the same time."
+    )
+    
+    analysis_periods = st.sidebar.number_input(
+        "Simulation Time (days)",
+        min_value=1,
+        value=4000,
+        step=1,
+        help="Number of days for analysis period"
+    )
+    
+    closing_periods = st.sidebar.number_input(
+        "Closing Periods (days)",
+        min_value=0,
+        value=100,
+        step=1,
+        help="Number of days for closing period to not have incomplete cycles at end of simulation time"
+    )
+
+    # Calculate total sim_time and display
+    sim_time = warmup_periods + analysis_periods + closing_periods
+    st.sidebar.info(f"**Total Simulation Time: {sim_time} days**")
+
     st.sidebar.header("Simulation Parameters")
 
     # Basic parameters
@@ -46,36 +76,6 @@ def render_sidebar():
         step=1,
         help="Maximum number of parts that can be in the depot at once"
     )
-
-    # Simulation time broken into 3 components
-    st.sidebar.markdown("**Simulation Timeline**")
-    warmup_periods = st.sidebar.number_input(
-        "Warmup Periods (days)",
-        min_value=0,
-        value=100,
-        step=1,
-        help="Number of days for warmup calculations. The initial calculations distort the actual representation of a DES due to fleet start time is the same for the first set of parts and aircraft in fleet is all the same. Also all the parts starting in Condition A also start at the same time."
-    )
-    
-    analysis_periods = st.sidebar.number_input(
-        "Simulation Time (days)",
-        min_value=1,
-        value=4000,
-        step=1,
-        help="Number of days for analysis period"
-    )
-    
-    closing_periods = st.sidebar.number_input(
-        "Closing Periods (days)",
-        min_value=0,
-        value=100,
-        step=1,
-        help="Number of days for closing period to not have incomplete cycles at end of simulation time"
-    )
-
-    # Calculate total sim_time and display
-    sim_time = warmup_periods + analysis_periods + closing_periods
-    st.sidebar.info(f"**Total Simulation Time: {sim_time} days**")
 
     # NEW: Part condemn parameters
     st.sidebar.subheader("Part Condemn Parameters")
