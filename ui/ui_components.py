@@ -28,7 +28,25 @@ def render_sidebar():
         step=1,
         help="Total number of aircraft in the fleet"
     )
+
+    mission_capable_rate = st.sidebar.number_input(
+        "Mission Capable Rate",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.60,
+        step=0.01,
+        format="%.2f",
+        help="The percentage of total aircraft that start in Fleet with a part (0.0 to 1.0)"
+    )
     
+    depot_capacity = st.sidebar.number_input(
+        "Depot Capacity",
+        min_value=1,
+        value=30,
+        step=1,
+        help="Maximum number of parts that can be in the depot at once"
+    )
+
     # Simulation time broken into 3 components
     st.sidebar.markdown("**Simulation Timeline**")
     warmup_periods = st.sidebar.number_input(
@@ -58,14 +76,6 @@ def render_sidebar():
     # Calculate total sim_time and display
     sim_time = warmup_periods + analysis_periods + closing_periods
     st.sidebar.info(f"**Total Simulation Time: {sim_time} days**")
-
-    depot_capacity = st.sidebar.number_input(
-        "Depot Capacity",
-        min_value=1,
-        value=30,
-        step=1,
-        help="Maximum number of parts that can be in the depot at once"
-    )
 
     # NEW: Part condemn parameters
     st.sidebar.subheader("Part Condemn Parameters")
@@ -124,16 +134,6 @@ def render_sidebar():
         value=132,
         step=1,
         help="Random seed for reproducibility"
-    )
-
-    mission_capable_rate = st.sidebar.number_input(
-        "Mission Capable Rate",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.60,
-        step=0.01,
-        format="%.2f",
-        help="The percentage of total aircraft that start in Fleet with a part (0.0 to 1.0)"
     )
 
 
