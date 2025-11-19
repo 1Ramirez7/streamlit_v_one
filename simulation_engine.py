@@ -1,15 +1,12 @@
 """
 Simulation Engine for Hill AFB DES Simulation
-
 Handles simulation logic, formulas, and event processing.
-Works with DataFrameManager to access and update DataFrames.
-
-All logic matches main_r-code.R exactly.
 """
 
 import numpy as np
 import pandas as pd
 import heapq
+from initialization import Initialization
 
 class SimulationEngine:
     """
@@ -19,8 +16,10 @@ class SimulationEngine:
     Contains formulas for stage durations and helper functions for event management.
     """
     
-    def __init__(self, df_manager, sone_mean, sone_sd,
-                 sthree_mean, sthree_sd, sim_time, depot_capacity,condemn_cycle, condemn_depot_fraction,  part_order_lag):
+    def __init__(self, df_manager, sone_mean, sone_sd, sthree_mean, sthree_sd, 
+                 sim_time, depot_capacity,condemn_cycle, condemn_depot_fraction,  part_order_lag,
+                 use_fleet_rand, fleet_rand_min, fleet_rand_max, use_depot_rand, depot_rand_min, 
+                 depot_rand_max):
         """
         Initialize SimulationEngine with DataFrameManager and stage parameters.
         
@@ -49,11 +48,35 @@ class SimulationEngine:
         self.condemn_cycle: int = condemn_cycle  # NEW: Store condemn cycle
         self.condemn_depot_fraction: float = condemn_depot_fraction # NEW: Store depot time fraction
         self.part_order_lag: int = part_order_lag  # NEW: Store lag parameter
+
+        self.use_fleet_rand = use_fleet_rand
+        self.fleet_rand_min = fleet_rand_min
+        self.fleet_rand_max = fleet_rand_max
+        self.use_depot_rand = use_depot_rand
+        self.depot_rand_min = depot_rand_min
+        self.depot_rand_max = depot_rand_max
         
         # NEW: Event-driven structures
         self.event_heap = []  # Priority queue: (time, counter, event_type, entity_id)
         self.event_counter = 0  # FIFO tie-breaker for same-time events
         self.current_time = 0  # Simulation clock
+
+        # WIP tracking
+        self.wip_history = []  # List of (time, wip_snapshot) tuples
+        self.wip_snapshot_interval = 1.0  # Record WIP every 1 day
+        self.next_wip_time = 0.0
+
+        # Event tracking for progress display
+        self.event_counts = {
+            'depot_complete': 0,
+            'fleet_complete': 0,
+            'new_part_arrives': 0,
+            'CF_DE': 0,
+            'part_fleet_end': 0,
+            'part_condemn': 0,
+            'total': 0
+        }
+        self.progress_callback = None  # Callback for UI updates
     
     # ==========================================================================
     # STAGE DURATION FORMULAS
@@ -61,9 +84,7 @@ class SimulationEngine:
     
     def calculate_fleet_duration(self):
         """
-        R code reference (main_r-code.R lines 1-11, example line 301):
-        
-        d1 <- max(0, rnorm(1, mean = sone_mean, sd = sone_sd))
+        normal distribution
         """
         return max(0, np.random.normal(self.sone_mean, self.sone_sd))
     
@@ -75,9 +96,7 @@ class SimulationEngine:
     
     def calculate_depot_duration(self):
         """
-        R code reference (main_r-code.R lines 1-11, example line 350):
-        
-        d3 <- max(0, rnorm(1, mean = sthree_mean, sd = sthree_sd))
+        Normal Distribution
         """
         return max(0, np.random.normal(self.sthree_mean, self.sthree_sd))
     
@@ -119,40 +138,51 @@ class SimulationEngine:
         self.event_counter += 1
     
     # ==========================================================================
-    # HELPER FUNCTIONS: ID GENERATION
+    # HELPER FUNCTIONS: ID GENERATION & ADD events to DFs
     # ==========================================================================
     
     def get_next_sim_id(self):
         """
-        Return the next available row index for adding an aircraft event to des_df.
+        current_sim_row is acting as a pointer to the next row to write in sim_df
 
-        Retrieves the current value of `df_manager.current_des_row`, which tracks how many
-        rows in the aircraft event log have been used. The returned index identifies where
-        the next event (e.g., Fleet completion, MICAP, or installation) will be written.
+        Retrieves the current value of `df_manager.current_sim_row`, which tracks how many
+        rows in the part event log have been used.
+         
+        Uses
+            1. use to slice dataframe up to current_sim_row:
+            `filled_sim_df = self.df.sim_df.iloc[:self.df.current_sim_row]`
+
+            2. Use current_sim_row as the row index to write into:
+                1. Set what row index to write into
+                `row_idx = self.df.current_sim_row`
+                2. Edit row index
+                `self.df.sim_df.at[row_idx, 'sim_id'] = sim_id`
+                3. Increment counter so the next event goes into the next row
+                `self.df.current_sim_row += 1`
 
         Returns
         -------
-        int
-            Next available row index in `des_df`.
-
-        Notes
-        -----
-        Ensures sequential event recording without overwriting data. Used by
-        `add_des_event()` and related event-processing methods to maintain index integrity.
+        int: Next available row index in `sim_df`.
         """
         return self.df.current_sim_row
     
     def get_next_des_id(self):
         """
-        Return the next available row index for adding an aircraft event to des_df.
+        Returns the next available row index in `des_df`.
 
-        Retrieves the current value of `df_manager.current_des_row`, which tracks how many
-        rows in the aircraft event log have been used. The returned index identifies where
-        the next event (e.g., Fleet completion, MICAP, or installation) will be written.
+        `current_des_row` indicates both:
+        • The write-position for inserting the next DES event.
 
-        Returns
-        -------
-        int: Next available row index in `des_df`.
+        Uses
+        ----
+        1. Retrieve all filled des rows by slicing at current_des_row:
+        `filled_des = self.df.des_df.iloc[:self.df.current_des_row]`
+
+        2. Create new des_id values during MICAP resolution and cycle restarts:
+        `new_des_id = self.get_next_des_id()`
+
+        3. Provide the row index consumed by `add_des_event()`:
+        `row_idx = self.df.current_des_row`
 
         Notes
         -----
@@ -160,10 +190,6 @@ class SimulationEngine:
         `add_des_event()` and related event-processing methods to maintain index integrity.
         """
         return self.df.current_des_row
-    
-    # ==========================================================================
-    # HELPER FUNCTIONS: ADD EVENTS TO DATAFRAMES
-    # ==========================================================================
     
     def add_sim_event(self, sim_id, part_id, desone_id, acone_id, micap,
                       fleet_duration, condition_f_duration, depot_duration,
@@ -176,19 +202,31 @@ class SimulationEngine:
                       install_start, install_end,
                       cycle, condemn):
         """
-        Record a new part event in sim_df at the current simulation row index.
+        Appends a new simulation-event row to `sim_df` at `current_sim_row`.
 
-        Writes all stage details for a single part's lifecycle event — including fleet,
-        condition F, depot, condition A, and installation phases — directly into the
-        preallocated part event DataFrame (`sim_df`). Each call appends one complete
-        event record for a specific part-cycle combination.
+        The function writes all provided scalar values into the target row using
+        `.at[]`, then increments `current_sim_row` so the next call writes to the
+        following row.
+
+        Role
+        ----
+        • Generates the foundation rows used when cycles restart.
+        (fleet → condition F → depot → condition A → install).
+
+        Uses
+        ----
+        1. Called during initialization (e.g., first-cycle,
+        injected depot/cond-F parts).
+        2. Called during event-handling routines to log:
+            • new cycles,
+            • the initial cycle for new part arrivals.
+        3. Consumes the index returned by `get_next_sim_id()`.
 
         Notes
         -----
-        This function updates one row in `sim_df` using the current value of
-        `df_manager.current_sim_row`, then increments the counter to maintain
-        sequential event recording. It is used internally by event-processing
-        functions such as `initialize_first_cycle()` and `handle_part_completes_depot()`.
+        • After writing the row, `current_sim_row` is incremented by 1.
+        • The sim_id parameter is not the row index; the row index is always
+        `current_sim_row`.
         """
         row_idx = self.df.current_sim_row
         
@@ -222,28 +260,36 @@ class SimulationEngine:
         self.df.current_sim_row += 1
     
     def add_des_event(self, des_id, ac_id, micap,
-                      simone_id, partone_id,
-                      fleet_duration, fleet_start, fleet_end,
-                      micap_duration, micap_start, micap_end,
-                      simtwo_id, parttwo_id,
-                      install_duration,
-                      install_start,
-                      install_end):
+                    simone_id, partone_id,
+                    fleet_duration, fleet_start, fleet_end,
+                    micap_duration, micap_start, micap_end,
+                    simtwo_id, parttwo_id,
+                    install_duration,
+                    install_start,
+                    install_end):
         """
-        Record a new aircraft event in des_df at the current simulation row index.
+        Appends a new aircraft-event row to `des_df` at `current_des_row`.
 
-        Writes all lifecycle details for a single aircraft event — including fleet,
-        MICAP, and installation stages — directly into the preallocated aircraft
-        event DataFrame (`des_df`). Each call appends one complete event record for
-        a specific aircraft-cycle combination.
+        The function writes all provided aircraft-stage values into the target
+        row using `.at[]`, then increments `current_des_row` so subsequent DES
+        events append sequentially.
+
+        Role
+        ----
+        • Creates new DES rows during cycle restarts.
+
+        Uses
+        ----
+        1. Called during initialization to create the aircraft's initial DES row.
+        2. Used extensively in MICAP and install logic to:
+            • generate the next-cycle DES record.
+        3. Consumes the index returned by `get_next_des_id()`.
 
         Notes
         -----
-        Updates one row in `des_df` using the current value of
-        `df_manager.current_des_row`, then increments the counter to ensure
-        sequential, non-overlapping event recording. Used internally by
-        event-handling functions such as `initialize_first_cycle()` and
-        `handle_aircraft_needs_part()` to maintain aircraft event integrity.
+        • After writing the row, `current_des_row` is incremented by 1.
+        • The des_id parameter is not the row index; the row index is always
+        `current_des_row`.
         """
         row_idx = self.df.current_des_row
         
@@ -271,281 +317,218 @@ class SimulationEngine:
     # ==========================================================================
     # HELPER FUNCTION: PROCESS NEW CYCLE STAGES (After Installation Completes)
     # ==========================================================================
-    
-    def process_new_cycle_stages(self, part_id, ac_id, s4_install_end, 
-                                  new_sim_id, new_des_id):
-        """
-        Advance a part–aircraft pair into the next maintenance cycle.
 
-        Calculates and updates Fleet, Condition F, and Depot stage timings for the
-        new cycle, applying depot capacity and condemn logic as needed. Updates both
-        `sim_df` and `des_df` records in place.
-
-        Notes
-        -----
-        Handles cycle continuation after installation events. Detailed logic and
-        stage timing formulas need to be documented separately.
+    def event_acp_fs_fe(self, s4_install_end, new_sim_id, new_des_id):
         """
-        # Get row indices (in Python these ARE the row indices, not IDs)
+        EVENT: Aircraft-Part Fleet Start to Fleet End
+        
+        Handles fleet stage timing for both aircraft (des_df) and part (sim_df).
+        Schedules:
+        - fleet_complete (aircraft event)
+        - part_fleet_end (part event to trigger CF→DE flow)
+        
+        Parameters
+        ----------
+        s4_install_end : float
+            Installation end time = fleet start time
+        new_sim_id : int
+            Row index in sim_df
+        new_des_id : int
+            Row index in des_df
+        """
         sim_row_idx = new_sim_id
         des_row_idx = new_des_id
         
-        # --- Stage One Calculation (for both part and aircraft) ---
+        # Calculate fleet duration and timing
         d1 = self.calculate_fleet_duration()
         s1_start = s4_install_end
         s1_end = s1_start + d1
         
-        # Fleet fits within sim_time, update both dataframes
+        # Update sim_df (part) and des_df (ac)
         self.df.sim_df.at[sim_row_idx, 'fleet_duration'] = d1
         self.df.sim_df.at[sim_row_idx, 'fleet_end'] = s1_end
-        
+
         self.df.des_df.at[des_row_idx, 'fleet_duration'] = d1
         self.df.des_df.at[des_row_idx, 'fleet_end'] = s1_end
         
-        # NEW: Schedule fleet completion event for the aircraft (des_df)
+        # Schedule fleet_complete event
         self.schedule_event(s1_end, 'fleet_complete', new_des_id)
         
-        # --- Condition F and Depot handling) ---
+        # Schedule part_fleet_end event 
+        self.schedule_event(s1_end, 'part_fleet_end', new_sim_id)
+
+
+    def event_p_cfs_de(self, sim_id):
+        """
+        EVENT: Part Condition F Start to Depot End
+        
+        Handles part flow from fleet_end → condition F → depot.
+        Triggered by 'part_fleet_end' event.
+        
+        For condemned parts:
+        - Marks condemn='yes'
+        - Uses reduced depot duration
+        - Schedules 'part_condemn' event at depot_end
+        
+        For normal parts:
+        - Uses full depot duration  
+        - Schedules 'depot_complete' event at depot_end
+        
+        Parameters
+        ----------
+        sim_id : int
+            Row index in sim_df to process
+        """
+        # load proper sim_df row
+        sim_row_idx = sim_id
+        s1_end = self.df.sim_df.at[sim_row_idx, 'fleet_end']
+
+        # EVENT TYPES
+        eventtypec="CONDEMN" # part is condemn
+        eventtypede="CFs_DE"
+        
+        # pre-Calculate depot_start given DEPOT CONSTRAINT is satisfy
         if len(self.active_depot) < self.depot_capacity:
             s3_start = s1_end
         else:
-            # Wait until the earliest depot slot frees up
+            # Get the earliest depot slot frees up
             earliest_free = heapq.heappop(self.active_depot)
             s3_start = max(s1_end, earliest_free)
-            s2_end = s3_start
+        
         # Condition F calculations
         s2_start = s1_end
         s2_end = s3_start
-        d2 = s2_end - s2_start # duration for condition f. Will be zero if depot has capacity
-        # depot calculations
-        # Get the cycle value for this row
-        cycle = self.df.sim_df.at[sim_row_idx, 'cycle']
+        d2 = s2_end - s2_start  # Wait time for depot
         
-        # Check if cycle = 20 for condemn logic
-        if cycle == self.condemn_cycle:
-            # Mark part as condemned
-            self.df.sim_df.at[sim_row_idx, 'condemn'] = 'yes'
-            # Condemned parts take 10% of normal depot time
-            d3 = self.calculate_depot_duration() * self.condemn_depot_fraction
-            
-            # --- Order new part logic ---
-            # Calculate depot_end for the condemned part
-            depot_end_condemned = s3_start + d3
-            
-            # Find the row in new_part_df where condition_a_start is empty (np.nan)
-            # This will be the row with only part_id populated
-            empty_row_mask = self.df.new_part_df['condition_a_start'].isna()
-            empty_row_idx = self.df.new_part_df[empty_row_mask].index[0]
-            
-            # Get the part_id from this row (we'll use it for the new row)
-            new_part_id = self.df.new_part_df.at[empty_row_idx, 'part_id']
-            
-            # Edit this row: set condition_a_start and cycle
-            self.df.new_part_df.at[empty_row_idx, 'condition_a_start'] = depot_end_condemned + self.part_order_lag
-            self.df.new_part_df.at[empty_row_idx, 'cycle'] = 0
-            
-            # Add new row with only part_id = previous part_id + 1
-            new_row = pd.DataFrame({
-                'sim_id': [np.nan],
-                'part_id': [new_part_id + 1],  # Increment from the edited row's part_id
-                'desone_id': [np.nan],
-                'acone_id': [np.nan],
-                'micap': [np.nan],
-                'fleet_duration': [np.nan],
-                'condition_f_duration': [np.nan],
-                'depot_duration': [np.nan],
-                'condition_a_duration': [np.nan],
-                'install_duration': [np.nan],
-                'fleet_start': [np.nan],
-                'fleet_end': [np.nan],
-                'condition_f_start': [np.nan],
-                'condition_f_end': [np.nan],
-                'depot_start': [np.nan],
-                'depot_end': [np.nan],
-                'destwo_id': [np.nan],
-                'actwo_id': [np.nan],
-                'condition_a_start': [np.nan],
-                'condition_a_end': [np.nan],
-                'install_start': [np.nan],
-                'install_end': [np.nan],
-                'cycle': [np.nan],
-                'condemn': [np.nan]
-            })
-            self.df.new_part_df = pd.concat([self.df.new_part_df, new_row], 
-                                            ignore_index=True)
-            
-            # NEW: Schedule the new part arrival event
-            new_part_arrival_time = depot_end_condemned + self.part_order_lag
-            self.schedule_event(new_part_arrival_time, 'new_part_arrives', new_part_id)
-            
-        else:
-            # Normal depot duration
-            d3 = self.calculate_depot_duration()
-        
-        s3_end = s3_start + d3
-        heapq.heappush(self.active_depot, s3_end)
-
-        # Update sim_df with Condition F info
-        self.df.sim_df.at[sim_row_idx, 'condition_f_duration'] = d2
+        # Update Condition F in sim_df
         self.df.sim_df.at[sim_row_idx, 'condition_f_start'] = s2_start
         self.df.sim_df.at[sim_row_idx, 'condition_f_end'] = s2_end
+        self.df.sim_df.at[sim_row_idx, 'condition_f_duration'] = d2
         
-        self.df.sim_df.at[sim_row_idx, 'depot_duration'] = d3
-        self.df.sim_df.at[sim_row_idx, 'depot_start'] = s3_start
-        self.df.sim_df.at[sim_row_idx, 'depot_end'] = s3_end
+        # --- Cycle Condemn Logic ---
+        cycle = self.df.sim_df.at[sim_row_idx, 'cycle']
         
-        # NEW: Schedule depot completion event for the part (sim_df) - ONLY if not condemned
-        if cycle != self.condemn_cycle:  # Only schedule if part not condemned
-            self.schedule_event(s3_end, 'depot_complete', new_sim_id)
-    
-    # ==========================================================================
-    # STUB METHODS FOR PARTS 3-4 (Implementation in later parts)
-    # ==========================================================================
-    
-    def initialize_first_cycle(self):
-        """
-        Initialize the first Fleet cycle for all aircraft–part pairs.
-
-        Generates the initial Fleet stage for every aircraft in `aircraft_df`,
-        assigning start and end times using Fleet durations. Populates both
-        `sim_df` (part events) and `des_df` (aircraft events) to establish baseline
-        records before the main simulation loop begins.
-
-        Notes
-        -----
-        Serves as the simulation warm-up phase, ensuring every aircraft–part pair
-        starts with one complete Fleet event. Subsequent stages (Condition F, Depot)
-        depend on these initial values.
-        """
-        # Loop through each aircraft in aircraft_df
-        for row_idx in range(len(self.df.aircraft_df)):
-            # Extract aircraft row data
-            ac_row = self.df.aircraft_df.iloc[row_idx]
-            
-            # Calculate Fleet duration
-            d1 = self.calculate_fleet_duration()
-            
-            # Timing calculations
-            s1_start = self.calculate_fleet_duration()  # So not all aircraft start at sim day 1
-            s1_end = s1_start + d1
-            
-            # Add to sim_df using helper function
-            # Note: ac_row['sim_id'] and ac_row['des_id'] are the IDs from aircraft_df
-            self.add_sim_event(
-                sim_id=ac_row['sim_id'],
-                part_id=ac_row['part_id'],
-                desone_id=ac_row['des_id'],  # Foreign key to des_df
-                acone_id=ac_row['ac_id'],
-                micap=ac_row['micap'],
-                fleet_duration=d1,
-                condition_f_duration=np.nan,
-                depot_duration=np.nan,
-                condition_a_duration=np.nan,
-                install_duration=np.nan,
-                fleet_start=s1_start,
-                fleet_end=s1_end,
-                condition_f_start=np.nan,
-                condition_f_end=np.nan,
-                depot_start=np.nan,
-                depot_end=np.nan,
-                destwo_id=None,
-                actwo_id=None,
-                condition_a_start=np.nan,
-                condition_a_end=np.nan,
-                install_start=np.nan,
-                install_end=np.nan,
-                cycle=1,
-                condemn="no"
-            )
-            # Note: add_sim_event increments current_sim_row automatically
-            
-            # Add to des_df using helper function
-            self.add_des_event(
-                des_id=ac_row['des_id'],
-                ac_id=ac_row['ac_id'],
-                micap=ac_row['micap'],
-                simone_id=ac_row['sim_id'],  # Foreign key to sim_df
-                partone_id=ac_row['part_id'],
-                fleet_duration=d1,
-                fleet_start=s1_start,
-                fleet_end=s1_end,
-                micap_duration=np.nan,
-                micap_start=np.nan,
-                micap_end=np.nan,
-                simtwo_id=None,
-                parttwo_id=None,
-                install_duration=np.nan,
-                install_start=np.nan,
-                install_end=np.nan
-            )
-            # Note: add_des_event increments current_des_row automatically
-    
-    def initialize_condition_f_depot(self):
-        """
-        Initialize Condition F and Depot stages for all first-cycle parts.
-
-        Uses Fleet completion times from the initial cycle to compute Condition F
-        wait durations and Depot processing times for each part. Applies depot
-        capacity constraints to stagger entry times and updates `sim_df` records
-        accordingly.
-
-        Notes
-        -----
-        Completes the warm-up phase by establishing initial Condition F and Depot
-        timing data before the main simulation loop begins.
-        """
-        # Loop through all part_ids in aircraft_df
-        for part_id in self.df.aircraft_df['part_id']:
-            
-            # Find the sim_df row where this part_id is in cycle 1
-            # Only search filled rows (up to current_sim_row)
-            filled_sim_df = self.df.sim_df.iloc[:self.df.current_sim_row]
-            
-            # Find row index where part_id matches AND cycle == 1
-            mask = (filled_sim_df['part_id'] == part_id) & (filled_sim_df['cycle'] == 1)
-            part_record_idx = filled_sim_df[mask].index[0]
-            
-            # Get fleet_end time
-            s1_end = self.df.sim_df.at[part_record_idx, 'fleet_end']
-            d3 = self.calculate_depot_duration() # Depot calculatuion 
-            
-            # --- Condition F - Reactive to depot capacity ---
-            if len(self.active_depot) < self.depot_capacity:
-                # Depot has capacity - part enters immediately
-                s3_start = s1_end
-            else:
-                # Depot full - wait for earliest slot
-                earliest_free = heapq.heappop(self.active_depot)
-                s3_start = max(s1_end, earliest_free)
-            
-            # Condition F waiting time
-            s2_start = s1_end
-            s2_end = s3_start
-            d2 = s2_end - s2_start  # Zero if depot has capacity
-            
-            # Depot timing
+        # CONDEMN PART: Cycle equals CONDEMN CYCLE
+        if cycle == self.condemn_cycle:
+            self.df.sim_df.at[sim_row_idx, 'condemn'] = 'yes'
+            # Condemned parts takes user determined rate of normal depot time
+            d3 = self.calculate_depot_duration() * self.condemn_depot_fraction
             s3_end = s3_start + d3
             heapq.heappush(self.active_depot, s3_end)
             
-            # Update sim_df using direct assignment (not add_sim_event)
-            self.df.sim_df.at[part_record_idx, 'condition_f_duration'] = d2
-            self.df.sim_df.at[part_record_idx, 'condition_f_start'] = s2_start
-            self.df.sim_df.at[part_record_idx, 'condition_f_end'] = s2_end
-            self.df.sim_df.at[part_record_idx, 'depot_duration'] = d3
-            self.df.sim_df.at[part_record_idx, 'depot_start'] = s3_start
-            self.df.sim_df.at[part_record_idx, 'depot_end'] = s3_end
-    
+            # Update depot info
+            self.df.sim_df.at[sim_row_idx, 'micap'] = eventtypec
+            self.df.sim_df.at[sim_row_idx, 'depot_start'] = s3_start
+            self.df.sim_df.at[sim_row_idx, 'depot_end'] = s3_end
+            self.df.sim_df.at[sim_row_idx, 'depot_duration'] = d3
+            
+            # Schedule condemn event at depot_end
+            self.schedule_event(s3_end, 'part_condemn', sim_id)
+            
+        else:
+            # NORMAL PART
+            d3 = self.calculate_depot_duration()
+            s3_end = s3_start + d3
+            heapq.heappush(self.active_depot, s3_end)
+            
+            self.df.sim_df.at[sim_row_idx, 'micap'] = eventtypede
+            self.df.sim_df.at[sim_row_idx, 'depot_start'] = s3_start
+            self.df.sim_df.at[sim_row_idx, 'depot_end'] = s3_end
+            self.df.sim_df.at[sim_row_idx, 'depot_duration'] = d3
+
+            # Schedule normal depot completion
+            self.schedule_event(s3_end, 'depot_complete', sim_id)
+
+
+    def event_p_condemn(self, sim_id):
+        """
+        EVENT: Part Condemn
+        
+        Handles condemned part processing:
+        1. Orders replacement part
+        2. Logs condemnation details
+        3. Schedules new part arrival
+        
+        Triggered when condemned part reaches depot_end.
+        
+        Parameters
+        ----------
+        sim_id : int
+            Row index in sim_df of condemned part
+        """
+        # note that previous functions use sim_id = new_sim_id
+        # so keep an eye on it when changing new_sim_id
+        sim_row_idx = sim_id
+        
+        part_id = self.df.sim_df.at[sim_row_idx, 'part_id']
+        depot_end_condemned = self.df.sim_df.at[sim_row_idx, 'depot_end']
+        
+        # Find the row in new_part_df where condition_a_start is empty (np.nan)
+        # This will be the row with only part_id populated
+        empty_row_mask = self.df.new_part_df['condition_a_start'].isna()
+        empty_row_idx = self.df.new_part_df[empty_row_mask].index[0]
+        
+        # Get precalculated part_id to use now and recalculate
+        new_part_id = self.df.new_part_df.at[empty_row_idx, 'part_id']
+        
+        # calculate new part arrival time
+        new_part_arrival_time = depot_end_condemned + self.part_order_lag # temp for log needed?
+        self.df.new_part_df.at[empty_row_idx, 'condition_a_start'] = new_part_arrival_time
+        self.df.new_part_df.at[empty_row_idx, 'cycle'] = 0 # hardcode cycle start value? 
+        
+        # Log condemnation. Use for debugging. Decide if still using!
+        self.df.condemn_new_log.append({
+            'part_id': part_id,
+            'depot_end': depot_end_condemned,
+            'new_part_id': new_part_id,
+            'condition_a_start': new_part_arrival_time
+        })
+        
+        # Add new row with only part_id = previous part_id + 1. For next new part
+        new_row = pd.DataFrame({
+            'sim_id': [np.nan],
+            'part_id': [new_part_id + 1],
+            'desone_id': [np.nan],
+            'acone_id': [np.nan],
+            'micap': [np.nan],
+            'fleet_duration': [np.nan],
+            'condition_f_duration': [np.nan],
+            'depot_duration': [np.nan],
+            'condition_a_duration': [np.nan],
+            'install_duration': [np.nan],
+            'fleet_start': [np.nan],
+            'fleet_end': [np.nan],
+            'condition_f_start': [np.nan],
+            'condition_f_end': [np.nan],
+            'depot_start': [np.nan],
+            'depot_end': [np.nan],
+            'destwo_id': [np.nan],
+            'actwo_id': [np.nan],
+            'condition_a_start': [np.nan],
+            'condition_a_end': [np.nan],
+            'install_start': [np.nan],
+            'install_end': [np.nan],
+            'cycle': [np.nan],
+            'condemn': [np.nan]
+        })
+        self.df.new_part_df = pd.concat([self.df.new_part_df, new_row], 
+                                        ignore_index=True)
+        
+        # Schedule new part arrival
+        self.schedule_event(new_part_arrival_time, 'new_part_arrives', new_part_id)
+
+
     def _schedule_initial_events(self):
         """
         Schedule all initial events after initialization phase completes.
         
-        Called by run() after initialize_first_cycle() and 
-        initialize_condition_f_depot() have set up the initial state.
+        Called by run() after initialization class has ran.
         
         Schedules three event types:
         1. Depot completions (parts finishing initial depot stage)
         2. Fleet completions (aircraft finishing initial fleet stage)
         3. New part arrivals (from new_part_df with condition_a_start set)
+        4. Condition F starts (parts injected into Condition F queue)
         """
         # Get filled rows only
         filled_sim = self.df.sim_df.iloc[:self.df.current_sim_row]
@@ -568,6 +551,13 @@ class SimulationEngine:
         new_parts = self.df.new_part_df[self.df.new_part_df['condition_a_start'].notna()]
         for _, row in new_parts.iterrows():
             self.schedule_event(row['condition_a_start'], 'new_part_arrives', row['part_id'])
+        
+        # 4. Schedule Condition F PART-EVENTS (CF_DE parts)
+        cond_f_parts = filled_sim[
+            ((filled_sim['micap'] == 'IC_IjCF') & (filled_sim['condition_f_start'] == 0)) |
+            (filled_sim['micap'] == 'IC_FE_CF')] 
+        for _, row in cond_f_parts.iterrows():
+            self.schedule_event(row['condition_f_start'], 'CF_DE', row['sim_id'])
     
     def handle_part_completes_depot(self, sim_id):
         """
@@ -576,18 +566,20 @@ class SimulationEngine:
         For the given part (identified by `sim_id`), this function determines whether
         any aircraft are currently in MICAP status and routes the part accordingly:
 
-        - **No MICAP aircraft:** The part moves into Condition A (available inventory)
+        - **No MICAP aircraft:** The part moves into Condition A
         and waits until triggered by an aircraft completing its Fleet stage.
         - **MICAP aircraft present:** The part is immediately installed on the earliest
         MICAP aircraft, resolving its MICAP status. Both `sim_df` and `des_df` are
         updated to close the current cycle, new rows are created for the next cycle,
-        and `process_new_cycle_stages()` advances both entities to their next event.
+        and `event_acp_fs_fe()` advances both entities to their next event.
 
         Notes
         -----
-        This function represents the "Part Completes Depot" event type in the
-        simulation event loop. It manages the transition from Depot completion to
-        either inventory availability or direct MICAP resolution.
+        - eventtypeca="DE_CA" # sim_df
+        - eventtypemi="DE_MI" # sim & des DFs - part resolve micap & cycle ends
+        - eventtypedemicr="DE_MI_CR" # sim & des DFs. DE resolve MICAP and CR
+        - eventtypedesmi="DE_SMI" # AC started micap & resolve
+        - eventtypedesmi="DE_SMI_CR" # AC started micap & CR
         """
         # Get part details
         filled_sim_df = self.df.sim_df.iloc[:self.df.current_sim_row]
@@ -598,6 +590,12 @@ class SimulationEngine:
         # Check if any aircraft in MICAP
         micap_aircraft = self.df.micap_df[self.df.micap_df['micap_end'].isna()].copy()
         n_micap = len(micap_aircraft)
+
+        eventtypeca="DE_CA" # sim_df
+        eventtypemi="DE_MI" # sim & des DFs - part resolve micap & cycle ends
+        eventtypedemicr="DE_MI_CR" # sim & des DFs. DE resolve MICAP and CR
+        eventtypedesmi="DE_SMI" # AC started micap & resolve
+        eventtypedesmi="DE_SMI_CR" # AC started micap & CR
         
         # CASE A1: No MICAP aircraft → Part goes to Condition A
         if n_micap == 0:
@@ -607,7 +605,7 @@ class SimulationEngine:
                 'part_id': part_row['part_id'],
                 'desone_id': part_row['desone_id'],
                 'acone_id': part_row['acone_id'],
-                'micap': part_row['micap'],
+                'micap': eventtypeca,
                 'fleet_duration': part_row['fleet_duration'],
                 'condition_f_duration': part_row['condition_f_duration'],
                 'depot_duration': part_row['depot_duration'],
@@ -642,15 +640,29 @@ class SimulationEngine:
             d4_install = self.calculate_install_duration()
             s4_install_start = s3_end
             s4_install_end = s4_install_start + d4_install
-            
             micap_duration_ = s3_end - first_micap['micap_start']
             micap_end_ = s3_end
             
+            # Check if aircraft has des_id BEFORE updating sim_df
+            has_des_id = pd.notna(first_micap['des_id'])
+            
+            # Determine which des_id to use for sim_df destwo_id
+            if has_des_id:
+                des_id_for_sim = first_micap['des_id']
+            else:
+                # Aircraft has no des_id, generate one now for MICAP resolution
+                des_id_for_sim = self.get_next_des_id()
+
+            # Get part details
+            filled_sim_df = self.df.sim_df.iloc[:self.df.current_sim_row]
+            part_row = filled_sim_df[filled_sim_df['sim_id'] == sim_id].iloc[0]
+        
             # Update existing sim_df row for this part (install info)
             part_row_idx = filled_sim_df[filled_sim_df['sim_id'] == sim_id].index[0]
+            self.df.sim_df.at[part_row_idx, 'micap'] = eventtypemi
             self.df.sim_df.at[part_row_idx, 'condition_a_duration'] = np.nan
             self.df.sim_df.at[part_row_idx, 'install_duration'] = d4_install
-            self.df.sim_df.at[part_row_idx, 'destwo_id'] = first_micap['des_id']
+            self.df.sim_df.at[part_row_idx, 'destwo_id'] = des_id_for_sim
             self.df.sim_df.at[part_row_idx, 'actwo_id'] = first_micap['ac_id']
             self.df.sim_df.at[part_row_idx, 'condition_a_start'] = np.nan
             self.df.sim_df.at[part_row_idx, 'condition_a_end'] = np.nan
@@ -659,15 +671,19 @@ class SimulationEngine:
             
             # Generate IDs for new cycle
             new_sim_id = self.get_next_sim_id()
-            new_des_id = self.get_next_des_id()
+
+            if has_des_id:
+                new_des_id_restart = self.get_next_des_id()
+            else:
+                new_des_id_restart = self.get_next_des_id() + 1
             
             # Add new row to sim_df for cycle restart
             self.add_sim_event(
                 sim_id=new_sim_id,
                 part_id=part_row['part_id'],
-                desone_id=new_des_id,
+                desone_id=new_des_id_restart,
                 acone_id=first_micap['ac_id'],
-                micap="no",
+                micap=eventtypedemicr,
                 fleet_duration=np.nan,
                 condition_f_duration=np.nan,
                 depot_duration=np.nan,
@@ -689,55 +705,97 @@ class SimulationEngine:
                 condemn="no"
             )
             
-            # Update des_df for MICAP resolution
-            filled_des_df = self.df.des_df.iloc[:self.df.current_des_row]
-            micap_des_row_idx = filled_des_df[filled_des_df['des_id'] == first_micap['des_id']].index[0]
-            self.df.des_df.at[micap_des_row_idx, 'micap_duration'] = micap_duration_
-            self.df.des_df.at[micap_des_row_idx, 'micap_start'] = first_micap['micap_start']
-            self.df.des_df.at[micap_des_row_idx, 'micap_end'] = micap_end_
-            self.df.des_df.at[micap_des_row_idx, 'simtwo_id'] = part_row['sim_id']
-            self.df.des_df.at[micap_des_row_idx, 'parttwo_id'] = part_row['part_id']
-            self.df.des_df.at[micap_des_row_idx, 'install_duration'] = d4_install
-            self.df.des_df.at[micap_des_row_idx, 'install_start'] = s4_install_start
-            self.df.des_df.at[micap_des_row_idx, 'install_end'] = s4_install_end
-            
-            # Add new row to des_df for cycle restart
-            self.add_des_event(
-                des_id=new_des_id,
-                ac_id=first_micap['ac_id'],
-                micap="no",
-                simone_id=new_sim_id,
-                partone_id=part_row['part_id'],
-                fleet_duration=np.nan,
-                fleet_start=s4_install_end,
-                fleet_end=np.nan,
-                micap_duration=np.nan,
-                micap_start=np.nan,
-                micap_end=np.nan,
-                simtwo_id=None,
-                parttwo_id=None,
-                install_duration=np.nan,
-                install_start=np.nan,
-                install_end=np.nan
-            )
+            # Handle des_df based on whether aircraft had des_id
+            if has_des_id:
+                # Aircraft has des_df row, MUTATE existing row
+                filled_des_df = self.df.des_df.iloc[:self.df.current_des_row]
+                micap_des_row_idx = filled_des_df[filled_des_df['des_id'] == first_micap['des_id']].index[0]
+                self.df.des_df.at[micap_des_row_idx, 'micap'] = eventtypemi
+                self.df.des_df.at[micap_des_row_idx, 'micap_duration'] = micap_duration_
+                self.df.des_df.at[micap_des_row_idx, 'micap_start'] = first_micap['micap_start']
+                self.df.des_df.at[micap_des_row_idx, 'micap_end'] = micap_end_
+                self.df.des_df.at[micap_des_row_idx, 'simtwo_id'] = part_row['sim_id']
+                self.df.des_df.at[micap_des_row_idx, 'parttwo_id'] = part_row['part_id']
+                self.df.des_df.at[micap_des_row_idx, 'install_duration'] = d4_install
+                self.df.des_df.at[micap_des_row_idx, 'install_start'] = s4_install_start
+                self.df.des_df.at[micap_des_row_idx, 'install_end'] = s4_install_end
+                
+                # Add new row to des_df for cycle restart
+                self.add_des_event(
+                    des_id=new_des_id_restart,
+                    ac_id=first_micap['ac_id'],
+                    micap=eventtypedemicr,
+                    simone_id=new_sim_id,
+                    partone_id=part_row['part_id'],
+                    fleet_duration=np.nan,
+                    fleet_start=s4_install_end,
+                    fleet_end=np.nan,
+                    micap_duration=np.nan,
+                    micap_start=np.nan,
+                    micap_end=np.nan,
+                    simtwo_id=None,
+                    parttwo_id=None,
+                    install_duration=np.nan,
+                    install_start=np.nan,
+                    install_end=np.nan
+                )
+            else:
+                # Aircraft started in MICAP, ADD NEW row for MICAP resolution
+                # (des_id_for_sim was already generated and used in sim_df)
+                self.add_des_event(
+                    des_id=des_id_for_sim,
+                    ac_id=first_micap['ac_id'],
+                    micap=eventtypedesmi, # resolve by DE part
+                    simone_id=None,
+                    partone_id=None,
+                    fleet_duration=np.nan,
+                    fleet_start=np.nan,
+                    fleet_end=np.nan,
+                    micap_duration=micap_duration_,
+                    micap_start=first_micap['micap_start'],
+                    micap_end=micap_end_,
+                    simtwo_id=part_row['sim_id'],
+                    parttwo_id=part_row['part_id'],
+                    install_duration=d4_install,
+                    install_start=s4_install_start,
+                    install_end=s4_install_end
+                )
+                
+                # Add ANOTHER row to des_df for cycle restart
+                self.add_des_event(
+                    des_id=new_des_id_restart,
+                    ac_id=first_micap['ac_id'],
+                    micap=eventtypedesmi,
+                    simone_id=new_sim_id,
+                    partone_id=part_row['part_id'],
+                    fleet_duration=np.nan,
+                    fleet_start=s4_install_end,
+                    fleet_end=np.nan,
+                    micap_duration=np.nan,
+                    micap_start=np.nan,
+                    micap_end=np.nan,
+                    simtwo_id=None,
+                    parttwo_id=None,
+                    install_duration=np.nan,
+                    install_start=np.nan,
+                    install_end=np.nan
+                )
             
             # Process stages 1-3 for the new cycle
-            self.process_new_cycle_stages(
-                part_id=part_row['part_id'],
-                ac_id=first_micap['ac_id'],
+            self.event_acp_fs_fe(
                 s4_install_end=s4_install_end,
                 new_sim_id=new_sim_id,
-                new_des_id=new_des_id
+                new_des_id=new_des_id_restart
             )
             
             # Remove resolved MICAP from micap_df
             self.df.micap_df = self.df.micap_df[
-                self.df.micap_df['des_id'] != first_micap['des_id']
+                self.df.micap_df['ac_id'] != first_micap['ac_id']
             ].reset_index(drop=True)
     
     def handle_aircraft_needs_part(self, des_id):
         """
-        Handle the event where an aircraft completes its Fleet stage and requires a replacement part.
+        Handle Event where aircraft completes Fleet stage and requires a replacement part.
 
         For the given aircraft (`des_id`), this function determines whether any parts are 
         available in Condition A inventory and proceeds along one of two main paths:
@@ -745,28 +803,35 @@ class SimulationEngine:
         - **Part available:** The earliest available part (based on `condition_a_start`) 
         is selected and installed immediately. Both `sim_df` and `des_df` are updated 
         to record installation details, new rows are created for the next 
-        cycle, and `process_new_cycle_stages()` advances the aircraft–part pair to 
+        cycle, and `event_acp_fs_fe()` advances the aircraft-part pair to 
         their next stage trigger.
         
-        If the part came from inventory (never cycled), two sim_df rows are created:
+        If the part came started inventory (IC or new part), two sim_df rows are created:
         one to record installation, and one to initialize its first full cycle.
 
-        - **No parts available:** The aircraft enters MICAP status. A new record is added 
-        to `micap_df` to log the start of the MICAP period until a future Depot 
-        completion or new part arrival resolves it.
+        - **No parts available:** The aircraft enters MICAP status. AC added to `micap_df` 
 
         Notes
         -----
-        Represents the "Aircraft Completes Fleet" event type in the simulation loop. 
-        This function links part availability, installation, and MICAP handling within 
-        the event-driven flow.
+        A. Besides AFE_MICAP. all 4 eventtypes go in both sim&des DFs
+        - eventtypeca="AFE_CA" # AC takes part from CA.
+        - eventtypecacr="AFE_CA_CR" # AC-PART cycle restart
+        - eventtypesca="AFE_SCA" # part started CA
+        - eventtypescacr="AFE_SCA_CR" # part started CA, cycle restart
+        - eventtype="AFE_MICAP" # AC goes MICAP
         """
         # Get aircraft details
         filled_des_df = self.df.des_df.iloc[:self.df.current_des_row]
         ac_row = filled_des_df[filled_des_df['des_id'] == des_id].iloc[0]
         
         s1_end = ac_row['fleet_end']
-        old_part_id = ac_row['partone_id']
+
+        # EVENT TYPEs 
+        eventtypeca="AFE_CA" # AC takes part from CA.
+        eventtypecacr="AFE_CA_CR" # AC-PART cycle restart
+        eventtypesca="AFE_SCA" # part started CA
+        eventtypescacr="AFE_SCA_CR" # part started CA, cycle restart
+        eventtype="AFE_MICAP" # AC goes MICAP
         
         # Check if available parts exist
         available_parts = self.df.condition_a_df[
@@ -802,6 +867,7 @@ class SimulationEngine:
                     filled_sim_df['sim_id'] == first_available['sim_id']
                 ].index[0]
                 
+                self.df.sim_df.at[part_row_idx, 'micap'] = eventtypeca
                 self.df.sim_df.at[part_row_idx, 'condition_a_duration'] = condition_a_duration
                 self.df.sim_df.at[part_row_idx, 'install_duration'] = d4_install
                 self.df.sim_df.at[part_row_idx, 'destwo_id'] = des_id
@@ -821,7 +887,7 @@ class SimulationEngine:
                     part_id=first_available['part_id'],
                     desone_id=new_des_id,
                     acone_id=ac_row['ac_id'],
-                    micap="no",
+                    micap=eventtypecacr,
                     fleet_duration=np.nan,
                     condition_f_duration=np.nan,
                     depot_duration=np.nan,
@@ -845,6 +911,7 @@ class SimulationEngine:
                 
                 # Update des_df
                 ac_row_idx = filled_des_df[filled_des_df['des_id'] == des_id].index[0]
+                self.df.des_df.at[ac_row_idx, 'micap'] = eventtypeca
                 self.df.des_df.at[ac_row_idx, 'simtwo_id'] = first_available['sim_id']
                 self.df.des_df.at[ac_row_idx, 'parttwo_id'] = first_available['part_id']
                 self.df.des_df.at[ac_row_idx, 'install_duration'] = d4_install
@@ -855,7 +922,7 @@ class SimulationEngine:
                 self.add_des_event(
                     des_id=new_des_id,
                     ac_id=ac_row['ac_id'],
-                    micap="no",
+                    micap=eventtypecacr,
                     simone_id=new_sim_id,
                     partone_id=first_available['part_id'],
                     fleet_duration=np.nan,
@@ -872,9 +939,7 @@ class SimulationEngine:
                 )
                 
                 # Process stages 1-3 for the new cycle
-                self.process_new_cycle_stages(
-                    part_id=first_available['part_id'],
-                    ac_id=ac_row['ac_id'],
+                self.event_acp_fs_fe(
                     s4_install_end=s4_install_end,
                     new_sim_id=new_sim_id,
                     new_des_id=new_des_id
@@ -889,7 +954,7 @@ class SimulationEngine:
                     part_id=first_available['part_id'],
                     desone_id=None,
                     acone_id=None,
-                    micap="no",
+                    micap=eventtypesca, # AFE_SCA
                     fleet_duration=np.nan,
                     condition_f_duration=np.nan,
                     depot_duration=np.nan,
@@ -907,7 +972,7 @@ class SimulationEngine:
                     condition_a_end=condition_a_end,
                     install_start=s4_install_start,
                     install_end=s4_install_end,
-                    cycle=0,
+                    cycle=first_available['cycle'],
                     condemn="no"
                 )
                 
@@ -921,7 +986,7 @@ class SimulationEngine:
                     part_id=first_available['part_id'],
                     desone_id=new_des_id_restart,
                     acone_id=ac_row['ac_id'],
-                    micap="no",
+                    micap=eventtypescacr,
                     fleet_duration=np.nan,
                     condition_f_duration=np.nan,
                     depot_duration=np.nan,
@@ -945,6 +1010,7 @@ class SimulationEngine:
                 
                 # Update des_df
                 ac_row_idx = filled_des_df[filled_des_df['des_id'] == des_id].index[0]
+                self.df.des_df.at[ac_row_idx, 'micap'] = eventtypesca
                 self.df.des_df.at[ac_row_idx, 'simtwo_id'] = new_sim_id
                 self.df.des_df.at[ac_row_idx, 'parttwo_id'] = first_available['part_id']
                 self.df.des_df.at[ac_row_idx, 'install_duration'] = d4_install
@@ -955,7 +1021,7 @@ class SimulationEngine:
                 self.add_des_event(
                     des_id=new_des_id_restart,
                     ac_id=ac_row['ac_id'],
-                    micap="no",
+                    micap=eventtypescacr,
                     simone_id=new_sim_id_restart,
                     partone_id=first_available['part_id'],
                     fleet_duration=np.nan,
@@ -972,9 +1038,7 @@ class SimulationEngine:
                 )
                 
                 # Process stages 1-3 for the new cycle
-                self.process_new_cycle_stages(
-                    part_id=first_available['part_id'],
-                    ac_id=ac_row['ac_id'],
+                self.event_acp_fs_fe(
                     s4_install_end=s4_install_end,
                     new_sim_id=new_sim_id_restart,
                     new_des_id=new_des_id_restart
@@ -993,7 +1057,7 @@ class SimulationEngine:
             new_micap = pd.DataFrame([{
                 'des_id': des_id,
                 'ac_id': ac_row['ac_id'],
-                'micap': 'yes',
+                'micap': eventtype,
                 'fleet_duration': ac_row['fleet_duration'],
                 'fleet_start': ac_row['fleet_start'],
                 'fleet_end': ac_row['fleet_end'],
@@ -1008,31 +1072,40 @@ class SimulationEngine:
 
     def handle_new_part_arrives(self, part_id):
         """
-        Handle the event where a newly ordered part arrives after its lead-time delay.
+        Handle the event where a newly ordered part arrives after its order-lag
 
-        Triggered when a part in `new_part_df` reaches its arrival day, this function
-        determines whether any aircraft are currently in MICAP status and proceeds
-        along one of two paths:
+        This function determines whether any aircraft are currently in MICAP 
+        status and proceeds along one of two paths:
 
-        - **No MICAP aircraft:** The arriving part is added to `condition_a_df`
-        (available inventory) and waits until triggered by an "Aircraft Completes
-        Fleet" event.
-        - **MICAP aircraft present:** The part is immediately installed on the
-        earliest MICAP aircraft, resolving its MICAP status. Both `sim_df` and
+        1. **No MICAP aircraft:** New PART is added to `condition_a_df` - end of path.
+        2. **MICAP aircraft:** The part is immediately installed on the
+        earliest MICAP aircraft, resolving MICAP. Both `sim_df` and
         `des_df` are updated to record installation details, new rows are created
-        for the next maintenance cycle, and `process_new_cycle_stages()` advances
-        the aircraft–part pair to their next event trigger.
+        for the next maintenance cycle, and `event_acp_fs_fe()` advances
+        the aircraft-part pair to their next event trigger.
 
         Notes
         -----
-        Represents the "New Part Arrives" event type in the simulation loop.
-        Handles the integration of newly ordered parts into the model and their
-        immediate or deferred assignment based on MICAP status. New parts are
-        created when condemned parts trigger an order via `process_new_cycle_stages()`.
+        eventtypenca="PNEW_CA"
+        eventtypenma="PNEW_MICAP" # sim_df has both of this
+        # Need expand func to allow  different event types in sim_df
+        eventtypenmacr="PNEW_MI_CR" # same as above. 
+        eventtypensmi="PNEW_SMICAP" # resolve MICAP for AC started MICAP
+        eventtypensmicr="PNEW_SMI_CR" # CR for AC started MICAP
         """
         # Get the part's arrival info from new_part_df
         part_row = self.df.new_part_df[self.df.new_part_df['part_id'] == part_id].iloc[0]
         condition_a_start = part_row['condition_a_start']
+        cycle = part_row['cycle']
+
+        # EVENT TYPES
+        eventtypenca="PNEW_CA"
+        eventtypenma="PNEW_MICAP" # sim_df has both of this
+        # Need expand func to allow  different event types in sim_df
+        eventtypenmacr="PNEW_MI_CR" # same as above. 
+        eventtypensmi="PNEW_SMICAP" # resolve MICAP for AC started MICAP
+        eventtypensmicr="PNEW_SMI_CR" # CR for AC started MICAP
+
         
         # Check if any aircraft currently in MICAP
         micap_aircraft = self.df.micap_df[self.df.micap_df['micap_end'].isna()]
@@ -1046,7 +1119,7 @@ class SimulationEngine:
                 'part_id': [part_id],
                 'desone_id': [np.nan],
                 'acone_id': [np.nan],
-                'micap': [np.nan],
+                'micap': [eventtypenca],
                 'fleet_duration': [np.nan],
                 'condition_f_duration': [np.nan],
                 'depot_duration': [np.nan],
@@ -1064,8 +1137,8 @@ class SimulationEngine:
                 'condition_a_end': [np.nan],
                 'install_start': [np.nan],
                 'install_end': [np.nan],
-                'cycle': [0],
-                'condemn': ['no']
+                'cycle': [cycle], # no need to override here as cycle is set in new_part_df
+                'condemn': ['no'] # new to streamline condemn so it is not hardcoded here
             })
             self.df.condition_a_df = pd.concat([self.df.condition_a_df, new_row], 
                                               ignore_index=True)
@@ -1089,6 +1162,16 @@ class SimulationEngine:
             condition_a_end = s4_install_start
             condition_a_duration = condition_a_end - condition_a_start
             
+            # Check if aircraft has des_id BEFORE adding sim_df row
+            has_des_id = pd.notna(first_micap['des_id'])
+            
+            # Determine which des_id to use for sim_df destwo_id
+            if has_des_id:
+                des_id_for_sim = first_micap['des_id']
+            else:
+                # Aircraft has no des_id, generate one now for MICAP resolution
+                des_id_for_sim = self.get_next_des_id()
+            
             # --- Add NEW row to sim_df for cycle 0 (install event) ---
             new_sim_id = self.get_next_sim_id()
             
@@ -1097,7 +1180,7 @@ class SimulationEngine:
                 part_id=part_id,
                 desone_id=np.nan,
                 acone_id=np.nan,
-                micap='no',
+                micap=eventtypenma,
                 fleet_duration=np.nan,
                 condition_f_duration=np.nan,
                 depot_duration=np.nan,
@@ -1109,7 +1192,7 @@ class SimulationEngine:
                 condition_f_end=np.nan,
                 depot_start=np.nan,
                 depot_end=np.nan,
-                destwo_id=first_micap['des_id'],
+                destwo_id=des_id_for_sim,
                 actwo_id=first_micap['ac_id'],
                 condition_a_start=condition_a_start,
                 condition_a_end=condition_a_end,
@@ -1121,7 +1204,12 @@ class SimulationEngine:
             
             # Generate IDs for cycle restart
             new_sim_id_restart = self.get_next_sim_id()
-            new_des_id_restart = self.get_next_des_id()
+            
+            # FIXED: Adjust des_id based on whether we already consumed one
+            if has_des_id:
+                new_des_id_restart = self.get_next_des_id()
+            else:
+                new_des_id_restart = self.get_next_des_id() + 1  # We used current_des_row for MICAP resolution
             
             # --- Add ANOTHER row to sim_df for cycle 1 (restart) ---
             self.add_sim_event(
@@ -1129,7 +1217,7 @@ class SimulationEngine:
                 part_id=part_id,
                 desone_id=new_des_id_restart,
                 acone_id=first_micap['ac_id'],
-                micap='no',
+                micap=eventtypenmacr, # PNEW_SMI_CR
                 fleet_duration=np.nan,
                 condition_f_duration=np.nan,
                 depot_duration=np.nan,
@@ -1151,44 +1239,89 @@ class SimulationEngine:
                 condemn='no'
             )
             
-            # --- Update des_df (existing MICAP aircraft row) ---
-            micap_duration = condition_a_start - first_micap['micap_start']
-            micap_end = condition_a_start
-            
-            row_idx = self.df.des_df[self.df.des_df['des_id'] == first_micap['des_id']].index[0]
-            self.df.des_df.at[row_idx, 'micap_duration'] = micap_duration
-            self.df.des_df.at[row_idx, 'micap_start'] = first_micap['micap_start']
-            self.df.des_df.at[row_idx, 'micap_end'] = micap_end
-            self.df.des_df.at[row_idx, 'simtwo_id'] = new_sim_id  # Use cycle 0 sim_id
-            self.df.des_df.at[row_idx, 'parttwo_id'] = part_id
-            self.df.des_df.at[row_idx, 'install_duration'] = d4_install
-            self.df.des_df.at[row_idx, 'install_start'] = s4_install_start
-            self.df.des_df.at[row_idx, 'install_end'] = s4_install_end
-            
-            # --- Add new row to des_df for cycle 1 (restart) ---
-            self.add_des_event(
-                des_id=new_des_id_restart,
-                ac_id=first_micap['ac_id'],
-                micap='no',
-                simone_id=new_sim_id_restart,
-                partone_id=part_id,
-                fleet_duration=np.nan,
-                fleet_start=s4_install_end,
-                fleet_end=np.nan,
-                micap_duration=np.nan,
-                micap_start=np.nan,
-                micap_end=np.nan,
-                simtwo_id=np.nan,
-                parttwo_id=np.nan,
-                install_duration=np.nan,
-                install_start=np.nan,
-                install_end=np.nan
-            )
+            # Handle des_df based on whether aircraft had des_id
+            if has_des_id:
+                # Aircraft has des_df row, MUTATE existing row
+                micap_duration = condition_a_start - first_micap['micap_start']
+                micap_end = condition_a_start
+                
+                row_idx = self.df.des_df[self.df.des_df['des_id'] == first_micap['des_id']].index[0]
+                self.df.des_df.at[row_idx, 'micap'] = eventtypenma
+                self.df.des_df.at[row_idx, 'micap_duration'] = micap_duration
+                self.df.des_df.at[row_idx, 'micap_start'] = first_micap['micap_start']
+                self.df.des_df.at[row_idx, 'micap_end'] = micap_end
+                self.df.des_df.at[row_idx, 'simtwo_id'] = new_sim_id  # Use cycle 0 sim_id
+                self.df.des_df.at[row_idx, 'parttwo_id'] = part_id
+                self.df.des_df.at[row_idx, 'install_duration'] = d4_install
+                self.df.des_df.at[row_idx, 'install_start'] = s4_install_start
+                self.df.des_df.at[row_idx, 'install_end'] = s4_install_end
+                
+                # Add new row to des_df for cycle restart
+                self.add_des_event(
+                    des_id=new_des_id_restart,
+                    ac_id=first_micap['ac_id'],
+                    micap=eventtypenmacr,
+                    simone_id=new_sim_id_restart,
+                    partone_id=part_id,
+                    fleet_duration=np.nan,
+                    fleet_start=s4_install_end,
+                    fleet_end=np.nan,
+                    micap_duration=np.nan,
+                    micap_start=np.nan,
+                    micap_end=np.nan,
+                    simtwo_id=np.nan,
+                    parttwo_id=np.nan,
+                    install_duration=np.nan,
+                    install_start=np.nan,
+                    install_end=np.nan
+                )
+            else:
+                # Aircraft started in MICAP, ADD NEW row for MICAP resolution
+                # (des_id_for_sim was already generated and used in sim_df)
+                micap_duration = condition_a_start - first_micap['micap_start']
+                micap_end = condition_a_start
+                
+                self.add_des_event(
+                    des_id=des_id_for_sim,
+                    ac_id=first_micap['ac_id'],
+                    micap=eventtypensmi,
+                    simone_id=None,
+                    partone_id=None,
+                    fleet_duration=np.nan,
+                    fleet_start=np.nan,
+                    fleet_end=np.nan,
+                    micap_duration=micap_duration,
+                    micap_start=first_micap['micap_start'],
+                    micap_end=micap_end,
+                    simtwo_id=new_sim_id,  # Use cycle 0 sim_id
+                    parttwo_id=part_id,
+                    install_duration=d4_install,
+                    install_start=s4_install_start,
+                    install_end=s4_install_end
+                )
+                
+                # Add ANOTHER row to des_df for cycle restart
+                self.add_des_event(
+                    des_id=new_des_id_restart,
+                    ac_id=first_micap['ac_id'],
+                    micap=eventtypensmicr,
+                    simone_id=new_sim_id_restart,
+                    partone_id=part_id,
+                    fleet_duration=np.nan,
+                    fleet_start=s4_install_end,
+                    fleet_end=np.nan,
+                    micap_duration=np.nan,
+                    micap_start=np.nan,
+                    micap_end=np.nan,
+                    simtwo_id=np.nan,
+                    parttwo_id=np.nan,
+                    install_duration=np.nan,
+                    install_start=np.nan,
+                    install_end=np.nan
+                )
             
             # --- Process stages 1-3 for the new cycle ---
-            self.process_new_cycle_stages(
-                part_id=part_id,
-                ac_id=first_micap['ac_id'],
+            self.event_acp_fs_fe(
                 s4_install_end=s4_install_end,
                 new_sim_id=new_sim_id_restart,
                 new_des_id=new_des_id_restart
@@ -1201,20 +1334,122 @@ class SimulationEngine:
             
             # --- Remove resolved MICAP from micap_df ---
             self.df.micap_df = self.df.micap_df[
-                self.df.micap_df['des_id'] != first_micap['des_id']
+                self.df.micap_df['ac_id'] != first_micap['ac_id']
             ].reset_index(drop=True)
-    
-    def run(self):
+
+
+    #def event_cf_de(self, sim_id):
+    def event_cf_de(self, sim_id):
+        """
+        EVENT-TYPE: CF_DE
+        ----------
+        * Move parts from CF to DE
+        * function: `event_cf_de`
+        * reference in
+            * engine.run
+            * engine._schedule_initial_events
+        
+        Parameters
+        ----------
+        sim_id : int
+            To fetch sim_id row in sim_df for editing.
+        """
+        # Get the part's row from sim_df
+        filled_sim_df = self.df.sim_df.iloc[:self.df.current_sim_row]
+        part_row_idx = filled_sim_df[filled_sim_df['sim_id'] == sim_id].index[0]
+        part_row = filled_sim_df.loc[part_row_idx]
+        
+        # Verify correct event type. (add code so it logs the event types, and obviously when error)
+        if part_row['micap'] == 'IC_IjCF':
+            assert part_row['condition_f_start'] == 0, \
+                f"IC_IjCF event must have condition_f_start=0, got {part_row['condition_f_start']}"
+        elif part_row['micap'] == 'IC_FE_CF':
+            pass
+        else:
+            raise AssertionError(f"Expected IC_IjCF or IC_FE_CF event, got {part_row['micap']}")
+        
+        cf_start = part_row['condition_f_start']
+        
+        # --- Depot queue logic ---
+        d_dur = self.calculate_depot_duration()
+        if len(self.active_depot) < self.depot_capacity:
+            d_start = cf_start
+        else:
+            earliest = heapq.heappop(self.active_depot)
+            d_start = max(cf_start, earliest)
+        
+        cf_end = d_start
+        d2 = cf_end - cf_start  # Condition F duration (wait time)
+        d_end = d_start + d_dur
+        heapq.heappush(self.active_depot, d_end)
+        eventtype="CF_DE"
+
+        # Write results back to sim_df
+        self.df.sim_df.at[part_row_idx, 'micap'] = eventtype
+        self.df.sim_df.at[part_row_idx, 'condition_f_end'] = cf_end
+        self.df.sim_df.at[part_row_idx, 'condition_f_duration'] = d2
+        self.df.sim_df.at[part_row_idx, 'depot_start'] = d_start
+        self.df.sim_df.at[part_row_idx, 'depot_end'] = d_end
+        self.df.sim_df.at[part_row_idx, 'depot_duration'] = d_dur
+        
+        # Schedule depot completion event (standard flow from here)
+        self.schedule_event(d_end, 'depot_complete', sim_id)
+
+    def _record_wip_snapshot(self):
+        """Record current work-in-progress counts at current_time."""
+        # Get filled dataframes
+        filled_sim = self.df.sim_df.iloc[:self.df.current_sim_row]
+        filled_des = self.df.des_df.iloc[:self.df.current_des_row]
+        
+        # Count parts in each stage (parts currently active in stage)
+        parts_in_fleet = len(filled_sim[
+            (filled_sim['fleet_start'] <= self.current_time) & 
+            (filled_sim['fleet_end'] > self.current_time)
+        ])
+        
+        parts_in_condition_f = len(filled_sim[
+            (filled_sim['condition_f_start'] <= self.current_time) & 
+            (filled_sim['condition_f_end'] > self.current_time)
+        ])
+        
+        parts_in_depot = len(filled_sim[
+            (filled_sim['depot_start'] <= self.current_time) & 
+            (filled_sim['depot_end'] > self.current_time)
+        ])
+        
+        parts_in_condition_a = len(self.df.condition_a_df)  # Available parts waiting
+        
+        # Count aircraft in each stage
+        aircraft_in_fleet = len(filled_des[
+            (filled_des['fleet_start'] <= self.current_time) & 
+            (filled_des['fleet_end'] > self.current_time)
+        ])
+        
+        aircraft_in_micap = len(self.df.micap_df[self.df.micap_df['micap_end'].isna()])
+        
+        # Record snapshot
+        snapshot = {
+            'time': self.current_time,
+            'parts_fleet': parts_in_fleet,
+            'parts_condition_f': parts_in_condition_f,
+            'parts_depot': parts_in_depot,
+            'parts_condition_a': parts_in_condition_a,
+            'aircraft_fleet': aircraft_in_fleet,
+            'aircraft_micap': aircraft_in_micap
+        }
+        
+        self.wip_history.append(snapshot)
+
+
+
+    def run(self, progress_callback=None):
         """
         Execute event-driven discrete-event simulation.
-        
-        Architecture Change:
-        - OLD: Period-based scanning (O(n × sim_time))
-        - NEW: Event-driven heap processing (O(n_events × log(n_events)))
-        
+
         Flow:
-        1. Initialize first cycle (parts and aircraft start in Fleet)
-        2. Initialize Condition F and Depot stages
+        1. Phase 1: Initialization (moved to Initialization class)
+            1. Initialize first cycle (parts and aircraft start in Fleet)
+            2. Initialize Condition F, Depot & COndition A Stages
         3. Schedule all initial events into heap
                 - Part Completes Depot → `handle_part_completes_depot()`
                 - Aircraft Completes Fleet → `handle_aircraft_needs_part()`
@@ -1229,12 +1464,17 @@ class SimulationEngine:
         dict
             Validation results and daily metrics
         """
-        # Phase 1: Initialization (unchanged)
-        self.initialize_first_cycle()
-        self.initialize_condition_f_depot()
+        self.progress_callback = progress_callback
+        
+        # Phase 1: Initialization
+        initializer = Initialization(self)
+        initializer.run_initialization()
         
         # Phase 2: Schedule all initial events
         self._schedule_initial_events()
+
+        # Record initial WIP
+        self._record_wip_snapshot()
         
         # Phase 3: Event-driven main loop
         while self.event_heap:
@@ -1247,6 +1487,20 @@ class SimulationEngine:
             
             # Advance simulation clock
             self.current_time = event_time
+
+            # Record WIP snapshots at regular intervals
+            if self.current_time >= self.next_wip_time:
+                self._record_wip_snapshot()
+                self.next_wip_time += self.wip_snapshot_interval
+            
+            # Track event processing
+            self.event_counts[event_type] = self.event_counts.get(event_type, 0) + 1
+            self.event_counts['total'] += 1
+            
+            # Update progress UI. callback provided
+            if self.progress_callback and self.event_counts['total'] % 100 == 0:
+                self.progress_callback(event_type, self.event_counts[event_type], 
+                                    self.event_counts['total'])
             
             # Process event (handlers will schedule future events)
             if event_type == 'depot_complete':
@@ -1258,11 +1512,28 @@ class SimulationEngine:
                 # EVENT TYPE: New Part Arrives
             elif event_type == 'new_part_arrives':
                 self.handle_new_part_arrives(entity_id)
-        
+                # EVENT TYPE: CF_DE
+            elif event_type == 'CF_DE':
+                self.event_cf_de(entity_id)
+                # EVENT TYPE:
+            elif event_type == 'part_fleet_end':
+                self.event_p_cfs_de(entity_id)
+                # EVENT TYPE:
+            elif event_type == 'part_condemn':
+                self.event_p_condemn(entity_id)
+
+        # Final WIP snapshot
+        self._record_wip_snapshot()
+
         # Phase 4: Post-processing
         self.df.trim_dataframes()
         validation_results = self.df.validate_structure()
         daily_metrics = self.df.create_daily_metrics()
         validation_results['daily_metrics'] = daily_metrics
+        
+        # Add event counts to results
+        validation_results['event_counts'] = self.event_counts.copy()
+        # Add WIP history to results
+        validation_results['wip_history'] = pd.DataFrame(self.wip_history)
         
         return validation_results

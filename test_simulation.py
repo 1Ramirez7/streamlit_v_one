@@ -1,69 +1,156 @@
 """
-Quick test script to run simulation locally without Streamlit.
+The test file skips ui_components.py entirely and is basically a stripped-down version of 
+main.py where you manually set all parameters for testing. No UI, just direct function calls.
+
 Returns sim_df and des_df for custom testing.
+- add so micap cant be > than n_total_aircraft
+- add code so if sim_df has install values, then it must have a destwo_id and actwo_id
+- how to add check to make sure micap_df does not have duplicate ac_id
+- how to add check to make sure condtion_a & f df do not have duplicate part_id
+- add code so when part-row is added it must have a value for cycle
+- add code so check if part_id has a duplicate cycle number. 
+    - check if part_id has rows after condemn = yes
+- add check if acone_id or actwo_id present then the desone_id or destwo_id must be present. vice versa as well. 
 """
 
 import pandas as pd
 import numpy as np
 from data_manager import DataFrameManager
 from simulation_engine import SimulationEngine
+from initialization import Initialization
+from utils import calculate_initial_allocation
+
+import warnings # to silent future warnings, comment to test
+warnings.simplefilter("ignore", category=FutureWarning)
 
 # Set random seed for reproducibility (matching ui_components.py default)
 np.random.seed(132)
 
 # Simulation parameters (matching ui_components.py defaults)
-n_total_parts = 35 # 35
-n_total_aircraft = 30 # 30
+n_total_parts = 1100 # 35
+n_total_aircraft = 900 # 30
 
+# NEW: Mission capable rate
+mission_capable_rate = 0.60 # 0.60 
 
 # Timeline parameters
-warmup_periods = 100
-analysis_periods = 1000
-closing_periods = 100
+warmup_periods = 0
+analysis_periods = 4200
+closing_periods = 0
 sim_time = warmup_periods + analysis_periods + closing_periods  # Total: 500 days
 
 # Stage duration parameters
-sone_mean = 10 # 10
-sone_sd = 1 # 1
-sthree_mean = 1.0 # 1.0
-sthree_sd = 0.2 # 0.2
+sone_mean = 365 # 10
+sone_sd = 10 # 1
+sthree_mean = 90.0 # 1.0
+sthree_sd = 1.2 # 0.2
 
 # Depot capacity
-depot_capacity = 5 # 20
+depot_capacity = 500 # 20
 condemn_cycle = 20 # 20
 condemn_depot_fraction = 0.10 # 0.10
-part_order_lag = 100 # 25
+part_order_lag = 365 # 25
+
+# NEW: Hardcoded initial part allocation (manually set for testing)
+parts_in_depot = 245 # 5
+parts_in_cond_f = 200 # 12
+parts_in_cond_a = 115 # 0
+
+# Randomization initial fleet and depot durations
+# functions: init_fleet_random & init_depot_random
+use_fleet_rand = False
+fleet_rand_min = 1.0
+fleet_rand_max = 1.0
+use_depot_rand = False
+depot_rand_min = 1.0
+depot_rand_max = 1.0
 
 print("Running simulation...")
 print(f"Parameters: {n_total_parts} parts, {n_total_aircraft} aircraft, {sim_time} days")
 
+# Calculate initial allocation & include exogenous params
+allocation = calculate_initial_allocation(
+    n_total_parts=n_total_parts,
+    n_total_aircraft=n_total_aircraft,
+    mission_capable_rate=mission_capable_rate,
+    depot_capacity=depot_capacity,
+    condemn_cycle=condemn_cycle,
+    parts_in_depot=parts_in_depot,
+    parts_in_cond_f=parts_in_cond_f,
+    parts_in_cond_a=parts_in_cond_a
+)
+
+print(f"\nInitial Allocation:")
+print(f"  Aircraft with parts: {allocation['n_aircraft_with_parts']}")
+print(f"  Aircraft without parts (MICAP): {allocation['n_aircraft_w_out_parts']}")
+print(f"  Parts in depot: {allocation['parts_in_depot']}")
+print(f"  Parts in Condition F: {allocation['parts_in_cond_f']}")
+print(f"  Parts in Condition A: {allocation['parts_in_cond_a']}")
+
+# error check
+total_allocated = (parts_in_depot + parts_in_cond_f + parts_in_cond_a + 
+                   allocation['n_aircraft_with_parts'])
+if total_allocated != n_total_parts:
+    print(f"\n❌ ERROR: Part allocation mismatch!")
+    print(f"  n_total_parts: {n_total_parts}")
+    print(f"  parts_in_depot: {parts_in_depot}")
+    print(f"  parts_in_cond_f: {parts_in_cond_f}")
+    print(f"  parts_in_cond_a: {parts_in_cond_a}")
+    print(f"  n_aircraft_with_parts: {allocation['n_aircraft_with_parts']}")
+    print(f"  Total allocated: {total_allocated}")
+    print(f"  Difference: {total_allocated - n_total_parts}")
+    import sys
+    sys.exit(1)
+
 # Create DataFrameManager
 df_manager = DataFrameManager(
-    n_total_parts, 
-    n_total_aircraft, 
-    sim_time,
-    sone_mean,
-    sthree_mean,
+    n_total_parts=n_total_parts, 
+    n_total_aircraft=n_total_aircraft, 
+    sim_time=sim_time,
+    sone_mean=sone_mean,
+    sthree_mean=sthree_mean,
+    allocation=allocation
 )
 
 # Create SimulationEngine
 sim_engine = SimulationEngine(
-    df_manager, 
-    sone_mean, sone_sd,
-    sthree_mean, sthree_sd, 
-    sim_time,
-    depot_capacity,
-    condemn_cycle,
-    condemn_depot_fraction,
-    part_order_lag
+    df_manager=df_manager,
+    sone_mean=sone_mean,
+    sone_sd=sone_sd,
+    sthree_mean=sthree_mean,
+    sthree_sd=sthree_sd,
+    sim_time=sim_time,
+    depot_capacity=depot_capacity,
+    condemn_cycle=condemn_cycle,
+    condemn_depot_fraction=condemn_depot_fraction,
+    part_order_lag=part_order_lag,
+    use_fleet_rand=use_fleet_rand,
+    fleet_rand_min=fleet_rand_min,
+    fleet_rand_max=fleet_rand_max,
+    use_depot_rand=use_depot_rand,
+    depot_rand_min=depot_rand_min,
+    depot_rand_max=depot_rand_max
 )
 
 # Run simulation
 validation_results = sim_engine.run()
 
-# Get final DataFrames
+# Run ONLY initialization steps. comment out steps to not run as needed
+#initializer = Initialization(sim_engine) # always uncomment if just running init...
+#initializer.run_initialization() # uncomment this to run all functions in init
+#initializer.event_ic_izfs()  # Initialize first Fleet cycles
+#initializer.event_ic_ijd()  # Inject parts into Depot
+#initializer.event_ic_ijcf() # Inject parts into Condition F
+#initializer.event_ic_ijca() # Inject parts into Condition A
+#initializer.eventm_ic_izca_cr() # Resolve MICAP with Condition A parts
+#initializer.eventm_ic_fe_cf() # Move Fleet End to Condition F
+#sim_engine._schedule_initial_events()
+
+# Get final DataFrames as needed
 sim_df = df_manager.sim_df
 des_df = df_manager.des_df
+# temp condemn new part log
+condemn_new_log = pd.DataFrame(df_manager.condemn_new_log)
 
 # Sort des_df for validation functions
 des_df = des_df.sort_values(['ac_id','des_id']).reset_index(drop=True)
@@ -203,21 +290,26 @@ def function_three(des_df):
           delta = 0 confirms correct timing
 
     Validation goal:
-        Confirms initialize_first_cycle() and process_new_cycle_stages()
+        Confirms event_ic_izfs() and process_new_cycle_stages()
         correctly calculate Fleet durations.
         If delta != 0:
             - Fleet duration logic was altered incorrectly, or
             - Model miswrote DataFrame via faulty sim_id or des_id linkage, or
             - Python 0-based indexing caused misalignment of event rows.
+        If fleet_start = Nan 
+            - connection between install_end can be the issue
+            - or the aircraft ac_id did not properly log
+                - Got Nan when adding ac start at MICAP
+                - but if ac start at MICAP then it shouldn't have fleet values. 
 
     Output:
-        List of delta values per record (rounded to 4 decimals).
-        Expected: all = 0.
-
-    Excel equivalent:
-        =IF(H2="","", (H2-G2)-F2)
+        Dict with:
+            'deltas': list of delta values per record (rounded to 4 decimals)
+            'failed_rows': DataFrame with first 3 failing rows (specific columns only)
+        Expected: all deltas = 0.
     """
     result = []
+    failed_indices = []
     
     for i in range(len(des_df)):
         fleet_end = des_df.loc[i, 'fleet_end']
@@ -226,13 +318,29 @@ def function_three(des_df):
         
         if pd.isna(fleet_end):
             result.append(np.nan)
+        elif pd.isna(fleet_start) or pd.isna(fleet_duration):
+            result.append(-999)  # Error: fleet_end exists but start/duration missing
+            failed_indices.append(i)
         else:
             val = (fleet_end - fleet_start) - fleet_duration
-            result.append(round(val, 4))  # round to 4 decimals
+            result.append(round(val, 4))
+            if round(val, 4) != 0:
+                failed_indices.append(i)
     
-    return result
-
-
+    # Get first 3 failed rows with specific columns
+    cols = ['des_id', 'ac_id', 'simone_id', 'fleet_duration', 'fleet_start', 
+            'fleet_end', 'micap_start', 'micap_end', 'parttwo_id', 
+            'install_start', 'install_end']
+    
+    if failed_indices:
+        failed_rows = des_df.loc[failed_indices[:3], cols].copy()
+    else:
+        failed_rows = pd.DataFrame(columns=cols)
+    
+    return {
+        'deltas': result,
+        'failed_rows': failed_rows
+    }
 
 def function_four(des_df):
     """
@@ -270,9 +378,6 @@ def function_four(des_df):
     Output:
         List of delta values (expected all = 0).
         Non-zero results indicate handler or key linkage issues in MICAP timing.
-
-    Excel equivalent:
-        =IF(K2="","", (K2-J2)-I2)
     """
     result = []
     
@@ -283,6 +388,8 @@ def function_four(des_df):
         
         if pd.isna(micap_end):
             result.append(np.nan)
+        elif pd.isna(micap_start) or pd.isna(micap_duration):
+            result.append(-999)  # Error: micap_end exists but start/duration missing
         else:
             result.append((micap_end - micap_start) - micap_duration)
     
@@ -328,6 +435,8 @@ def function_five(des_df):
         
         if pd.isna(install_end):
             result.append(np.nan)
+        elif pd.isna(install_start) or pd.isna(install_duration):
+            result.append(-999)  # Error: install_end exists but start/duration missing
         else:
             result.append((install_end - install_start) - install_duration)
     
@@ -397,18 +506,29 @@ def function_eight(sim_df):
     Purpose:
         Checks for duplicate values in sim_df key columns 
         - Count occurrences and flag any values appearing more than once.
+        - Check for gaps in sim_id sequence.
 
     Diagnostic meaning:
         There should be no duplicate values.
     """
     duplicate_report = {}
-
     for col in ['sim_id', 'desone_id', 'destwo_id']:
         counts = sim_df[col].value_counts(dropna=True)
         duplicates = counts[counts > 1].index.tolist()
         duplicate_report[col] = duplicates
-
-    return duplicate_report
+    
+    # Check for gaps in sim_id sequence
+    unique_sim_ids = sorted(sim_df['sim_id'].dropna().unique())
+    gaps = []
+    
+    for i in range(len(unique_sim_ids) - 1):
+        if unique_sim_ids[i+1] - unique_sim_ids[i] > 1:
+            gaps.append((int(unique_sim_ids[i]), int(unique_sim_ids[i+1])))
+    
+    return {
+        'duplicates': duplicate_report,
+        'gaps': gaps
+    }
 
 def function_nine(sim_df, condemn_cycle=5):
     """
@@ -441,27 +561,48 @@ def function_nine(sim_df, condemn_cycle=5):
     top_5 = list(part_counts.nlargest(5).items())
     bottom_5 = list(part_counts.nsmallest(5).items())
 
-    # Identify parts with cycles above condemn
-    flagged_parts = part_counts[part_counts > (condemn_cycle + 1)].index.tolist()
-    flagged_count = len(flagged_parts)
-    if flagged_count == 0:
-        status = "PASS"
-    elif flagged_count > 5:
-        status = "EXCEEDED_LIMIT"
-    else:
-        status = "FAIL"
+    # --- Check for cycle limit violations ---
+    max_allowed = condemn_cycle + 1
+    flagged = part_counts[part_counts > max_allowed]
+    flagged_count = len(flagged)
+
+    # --- Check for sequential gaps ---
+    unique_part_ids = sorted(sim_df['part_id'].dropna().unique())
+    gaps = [(int(unique_part_ids[i]), int(unique_part_ids[i + 1]))
+            for i in range(len(unique_part_ids) - 1)
+            if unique_part_ids[i + 1] - unique_part_ids[i] > 1]
+
+    # --- Determine overall statuses independently ---
+    status = "PASS"
+    if flagged_count > 0:
+        status = "FAIL" if flagged_count <= 5 else "EXCEEDED_LIMIT"
+    gap_status = "GAPS_DETECTED" if gaps else "PASS"
 
     result = {
-        "status": status,
-        "flagged_count": flagged_count,
-        "mean": mean_parts,
-        "std": std_parts,
-        "top_5": top_5,
-        "bottom_5": bottom_5
+        'mean': mean_parts,
+        'std': std_parts,
+        'top_5': top_5,
+        'bottom_5': bottom_5,
+        'flagged_count': flagged_count,
+        'flagged_parts': list(flagged.index[:5]) if flagged_count > 0 else [],
+        'gaps': gaps,
+        'status': status,
+        'gap_status': gap_status
     }
-    # Include flagged part IDs only if not too many
-    if 0 < flagged_count <= 5:
-        result["flagged_parts"] = flagged_parts
+
+    return result
+
+
+    # --- Determine overall status ---
+    if len(gaps) > 0:
+        result['status'] = 'GAPS_DETECTED'
+    elif flagged_count == 0:
+        result['status'] = 'PASS'
+    elif flagged_count <= 5:
+        result['status'] = 'FAIL'
+        result['flagged_parts'] = list(flagged.index)
+    else:
+        result['status'] = 'EXCEEDED_LIMIT'
 
     return result
 
@@ -479,7 +620,7 @@ def function_ten(sim_df):
           delta = 0 confirms correct timing
 
     Validation goal:
-        Confirms initialize_first_cycle() and process_new_cycle_stages()
+        Confirms event_ic_izfs() and process_new_cycle_stages()
         correctly calculate Fleet durations.
         If delta != 0:
             - Fleet duration logic was altered incorrectly, or
@@ -499,9 +640,11 @@ def function_ten(sim_df):
         
         if pd.isna(fleet_end):
             result.append(np.nan)
+        elif pd.isna(fleet_start) or pd.isna(fleet_duration):
+            result.append(-999)  # Error: fleet_end exists but start/duration missing
         else:
             val = (fleet_end - fleet_start) - fleet_duration
-            result.append(round(val, 4))  # round to 4 decimals
+            result.append(round(val, 4))
     
     return result
 
@@ -544,6 +687,8 @@ def function_eleven(sim_df):
         
         if pd.isna(install_end):
             result.append(np.nan)
+        elif pd.isna(install_start) or pd.isna(install_duration):
+            result.append(-999)  # Error: install_end exists but start/duration missing
         else:
             result.append((install_end - install_start) - install_duration)
     
@@ -653,6 +798,44 @@ def function_thirteen(sim_df):
     else:
         return {"status": "PASS", "failed_checks": []} # end F13
 
+def function_thirteen_one(sim_df):
+    """
+    For every part_id (integer):
+        At least ONE of these must be a REAL float (not NaN):
+            fleet_end, condition_f_end, depot_end, condition_a_end
+    FAIL:
+        Count failures + return first 5 failing rows.
+        Returned table prints vertically.
+    WHY IT WAS MADE
+        when adding initial condition f parts, those parts where never process in the model
+        so they had NA for almost every column. No other check pick up the 
+        incorrect results. 
+
+    - first culript to cause error: engine.initialize_condition_f (see push notes in cca6fed)
+        - cause: addition of engine.event_ic_ijcf led to bug
+    """
+    required_cols = [
+        'sim_id','part_id','desone_id','acone_id',
+        'fleet_start','fleet_end','condition_f_start','condition_f_end',
+        'depot_start','depot_end','destwo_id','actwo_id',
+        'condition_a_start','condition_a_end',
+        'install_start','install_end','cycle','condemn']
+
+    df = sim_df[pd.to_numeric(sim_df['part_id'], errors='coerce').notna()].copy()
+    test_cols = ['fleet_end','condition_f_end','depot_end','condition_a_end']
+    def has_real_float(row):
+        return any(isinstance(row[c], float) and pd.notna(row[c]) for c in test_cols)
+    fail_mask = ~df.apply(has_real_float, axis=1)
+    failing_rows = df[fail_mask].copy()
+    failing_rows = failing_rows.round(2)# Round float values for readability
+    if failing_rows.empty:
+        return {"status": "PASS", "fail_count": 0,
+            "fail_rows": pd.DataFrame(columns=required_cols)}
+    out = failing_rows[required_cols].head(5).T# Return in vertical layout (transpose)
+    return {"status": "FAIL", "fail_count": len(failing_rows), "fail_rows": out}
+
+
+
 def function_fourteen():
     """
     Check if sim_df row count matches expected events based on
@@ -678,6 +861,12 @@ def function_fourteen():
             "percent_of_expected": round(pct, 2), "status": status} # end F14
 
 
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+
+
 
 # ============================================================================
 # RUN VALIDATION FUNCTIONS AND CHECK RESULTS
@@ -695,7 +884,7 @@ func1_errors = func1_series[func1_series.notna() & (func1_series != 0)]
 if len(func1_errors) == 0:
     print("✓ PASS: All values are 0 or empty")
 else:
-    print(f"✗ FAIL: Found {len(func1_errors)} non-zero values")
+    print(f"❌ FAIL: Found {len(func1_errors)} non-zero values")
     print(f"  Non-zero values: {func1_errors.tolist()[:10]}")
 if func1_result['flagged_aircraft']:
     print(f"  ⚠ Flagged ac_id(s) missing continuity: {func1_result['flagged_aircraft']}") # end F1
@@ -709,19 +898,22 @@ func2_errors = func2_series[func2_series.notna() & (func2_series != 0)]
 if len(func2_errors) == 0:
     print("✓ PASS: All values are 0 or empty")
 else:
-    print(f"✗ FAIL: Found {len(func2_errors)} non-zero values")
+    print(f"❌ FAIL: Found {len(func2_errors)} non-zero values")
     print(f"  Non-zero values: {func2_errors.tolist()[:10]}")
 
 # Function 3
 print("\nFunction 3: Fleet Duration Validation")
 func3_result = function_three(des_df)
-func3_series = pd.Series(func3_result)
+func3_series = pd.Series(func3_result['deltas'])
 func3_errors = func3_series[func3_series.notna() & (func3_series != 0)]
 if len(func3_errors) == 0:
     print("✓ PASS: All values are 0 or empty")
 else:
-    print(f"✗ FAIL: Found {len(func3_errors)} non-zero values")
+    print(f"❌ FAIL: Found {len(func3_errors)} non-zero values")
     print(f"  Non-zero values: {func3_errors.tolist()[:10]}")
+    if not func3_result['failed_rows'].empty:
+        print("\n  First 3 Failed Rows:")
+        print(func3_result['failed_rows'].to_string(index=False))
 
 # Function 4
 print("\nFunction 4: MICAP Duration Validation")
@@ -731,7 +923,7 @@ func4_errors = func4_series[func4_series.notna() & (func4_series != 0)]
 if len(func4_errors) == 0:
     print("✓ PASS: All values are 0 or empty")
 else:
-    print(f"✗ FAIL: Found {len(func4_errors)} non-zero values")
+    print(f"❌ FAIL: Found {len(func4_errors)} non-zero values")
     print(f"  Non-zero values: {func4_errors.tolist()[:10]}")
 
 # Function 5
@@ -742,7 +934,7 @@ func5_errors = func5_series[func5_series.notna() & (func5_series != 0)]
 if len(func5_errors) == 0:
     print("✓ PASS: All values are 0 or empty")
 else:
-    print(f"✗ FAIL: Found {len(func5_errors)} non-zero values")
+    print(f"❌ FAIL: Found {len(func5_errors)} non-zero values")
     print(f"  Non-zero values: {func5_errors.tolist()[:10]}")
 
 # Function 6
@@ -775,7 +967,7 @@ for col, dup_list in func7_result.items():
     if len(dup_list) == 0:
         print(f"✓ {col}: No duplicates found")
     else:
-        print(f"✗ {col}: Found {len(dup_list)} duplicate values")
+        print(f"❌ {col}: Found {len(dup_list)} duplicate values")
         print(f"  Duplicates: {dup_list[:10]}")  # prints first 10 if many. end of F7
 
 print("SIM_DF TEST FOLLOW")
@@ -784,16 +976,25 @@ print("SIM_DF TEST FOLLOW")
 print("\nFunction 8: Unique ID Validation (sim_id, desone_id, destwo_id)")
 func8_result = function_eight(sim_df)
 
-for col, dup_list in func8_result.items():
+# Check duplicates
+for col, dup_list in func8_result['duplicates'].items():
     if len(dup_list) == 0:
         print(f"✓ {col}: No duplicates found")
     else:
-        print(f"✗ {col}: Found {len(dup_list)} duplicate values")
-        print(f"  Duplicates: {dup_list[:10]}") # end of F8
+        print(f"❌ {col}: Found {len(dup_list)} duplicate values")
+        print(f"  Duplicates: {dup_list[:10]}")
+
+# Check for gaps in sim_id
+if func8_result['gaps']:
+    print(f"\n❌ Gap Check FAILED: {len(func8_result['gaps'])} gap(s) detected in sim_id")
+    for before, after in func8_result['gaps']:
+        print(f"  Gap between sim_id {before} and {after}")
+else:
+    print("\n✅ Gap Check PASSED")  # end of F8
 
 # Function 9
 print("\nFunction 9: Part Usage Distribution")
-func9_result = function_nine(sim_df, condemn_cycle=condemn_cycle)  # <-- added argument
+func9_result = function_nine(sim_df, condemn_cycle=condemn_cycle)
 
 print(f"Average Cycles per Part: {func9_result['mean']:.2f}")
 print(f"Standard Deviation: {func9_result['std']:.2f}")
@@ -806,19 +1007,23 @@ print("\nBottom 5 Parts (Fewest Cycles):")
 for part_id, count in func9_result['bottom_5']:
     print(f"  part_id {part_id}: {count} cycles")
 
-# --- New concise handling for status and flagged parts ---
+# --- Check for gaps ---
+if func9_result['gaps']:
+    print(f"\n❌ Gap Check FAILED: {len(func9_result['gaps'])} gap(s) detected")
+    for before, after in func9_result['gaps']:
+        print(f"  Gap between part_id {before} and {after}")
+else:
+    print("\n✅ Gap Check PASSED")
+
+# --- Check cycle limits ---
 status = func9_result["status"]
 flagged_count = func9_result["flagged_count"]
 
 if status == "PASS":
-    print("\n✅ Function 9 PASSED: No parts exceeded cycle limit.")
-elif status == "FAIL":
-    print(f"\n❌ Function 9 FAILED: {flagged_count} parts exceeded limit.")
-    print(f"Flagged Parts: {func9_result['flagged_parts']}")
-elif status == "EXCEEDED_LIMIT":
-    print(f"\n❌ Function 9 FAILED: {flagged_count} parts exceeded limit.")  # end F9
-
-
+    print("✅ Cycle Limit PASSED")
+else:
+    print(f"❌ Cycle Limit FAILED: {flagged_count} parts exceeded limit")
+    print(f"Flagged Parts: {func9_result['flagged_parts']}") # end F9
 
 # Function 10
 print("\nFunction 10: Fleet Duration Validation (sim_df)")
@@ -829,7 +1034,7 @@ func10_errors = func10_series[func10_series.notna() & (func10_series != 0)]
 if len(func10_errors) == 0:
     print("✓ PASS: All values are 0 or empty")
 else:
-    print(f"✗ FAIL: Found {len(func10_errors)} non-zero values")
+    print(f"❌ FAIL: Found {len(func10_errors)} non-zero values")
     print(f"  Non-zero values: {func10_errors.tolist()[:10]}") # end F10
 
 # Function 11
@@ -841,7 +1046,7 @@ func11_errors = func11_series[func11_series.notna() & (func11_series != 0)]
 if len(func11_errors) == 0:
     print("✓ PASS: All values are 0 or empty")
 else:
-    print(f"✗ FAIL: Found {len(func11_errors)} non-zero values")
+    print(f"❌ FAIL: Found {len(func11_errors)} non-zero values")
     print(f"  Non-zero values: {func11_errors.tolist()[:10]}")  # end of F11
 
 # Function 12
@@ -853,7 +1058,7 @@ func12_errors = func12_series[func12_series.notna() & (func12_series != 0)]
 if len(func12_errors) == 0:
     print("✓ PASS: All values are 0 or empty")
 else:
-    print(f"✗ FAIL: Found {len(func12_errors)} non-zero values")
+    print(f"❌ FAIL: Found {len(func12_errors)} non-zero values")
     print(f"  Non-zero values: {func12_errors.tolist()[:10]}")
 if func12_result['flagged_parts']:
     print(f"  ⚠ Flagged part_id(s) missing continuity: {func12_result['flagged_parts']}") # end F12
@@ -867,6 +1072,17 @@ if func13_result["status"] == "PASS":
 else:
     print("❌ Function 13 FAILED: One or more stages have inconsistent times.")
     print(f"Failed Checks: {func13_result['failed_checks']}") # end F13
+
+# Function 13.1
+print("\nFunction 13.1: Part End-Stage Completion Check (sim_df)")
+func13_1 = function_thirteen_one(sim_df)
+
+if func13_1["status"] == "PASS":
+    print("✓ PASS: At least one valid end-stage float found for every part_id")
+else:
+    print(f"❌ FAIL: {func13_1['fail_count']} part_id rows failed checks")
+    print("\nFirst 5 failing rows (vertical format):\n")
+    print(func13_1["fail_rows"].to_string()) # end F13.1
 
 # Function 14
 print("\nFunction 14: Simulation Volume Validation (sim_df count vs expected)")
@@ -883,24 +1099,6 @@ elif func14_result["status"] == "WARN":
 else:
     print("❌ Deviation exceeds ±5% of expected count.")
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 print("\n" + "="*80)
 print("VALIDATION COMPLETE")
 print("="*80)
@@ -908,7 +1106,7 @@ print("="*80)
 # Add results as new columns to des_df
 des_df['func1_result'] = func1_result['deltas']
 des_df['func2_result'] = func2_result
-des_df['func3_result'] = func3_result
+des_df['func3_result'] = func3_result['deltas']
 des_df['func4_result'] = func4_result
 des_df['func5_result'] = func5_result
 
@@ -940,4 +1138,7 @@ output_file = "simulation_results_with_validation.xlsx"
 with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
     sim_df.to_excel(writer, sheet_name='sim_df', index=False)
     des_df.to_excel(writer, sheet_name='des_df', index=False)
+    condemn_new_log.to_excel(writer, sheet_name='p_log', index=False)
 print(f"\n✓ Results exported to {output_file}")
+
+

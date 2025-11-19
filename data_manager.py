@@ -24,8 +24,13 @@ class DataFrameManager:
     """
     
     def __init__(self, n_total_parts, n_total_aircraft, sim_time,
-                 sone_mean, sthree_mean):
+                 sone_mean, sthree_mean, allocation=None):
         """
+        Maybe use type hints for better documentation, example 
+        self, 
+        n_total_parts: int, 
+        n_total_aircraft: int,  ....
+        
         Initialize DataFrameManager with simulation parameters.
         
         R code reference (main_r-code.R lines 1-11, 15-21, 67-156)
@@ -36,6 +41,7 @@ class DataFrameManager:
         self.sim_time = sim_time
         self.sone_mean = sone_mean
         self.sthree_mean = sthree_mean
+        self.allocation = allocation
         
         # Calculate pre-allocation sizes
         self.max_sim_events, self.max_des_events = self._calculate_max_events()
@@ -51,6 +57,8 @@ class DataFrameManager:
         # Initialize row counters (R lines 145-146)
         self.current_sim_row = 0  # Python 0-based (will use as index)
         self.current_des_row = 0  # Python 0-based (will use as index)
+        
+        self.condemn_new_log = []  # List to track condemned parts and replacements
     
     def _calculate_max_events(self):
         """
@@ -75,109 +83,53 @@ class DataFrameManager:
     
     def _create_aircraft_df(self):
         """
-        R code reference (main_r-code.R lines 67-73):
-        
-        aircraft_df <- tibble(
-          des_id = seq_len(n_total_aircraft),
-          ac_id = seq_len(n_total_aircraft),
-          aircraft_name = "strike",
-          micap = "no",
-          part_id = seq_len(n_total_aircraft),
-          sim_id = seq_len(n_total_aircraft)
-        )
-        NOTe: python code starts index at 0 vs r that starts at 1. 
-        So we will have part_id and ac_id 0.
+        Creates aircraft dataframe with initial conditions.
+        calculated in utils.calculate_initial_allocation
         """
-        # First n_total_aircraft parts are paired 1-to-1 with aircraft
+        x = self.allocation['n_aircraft_with_parts']
+
         return pd.DataFrame({
-            'des_id': range(self.n_total_aircraft),
-            'ac_id': range(self.n_total_aircraft),
-            'aircraft_name': ['strike'] * self.n_total_aircraft,
-            'micap': ['no'] * self.n_total_aircraft,
-            'part_id': range(self.n_total_aircraft),
-            'sim_id': range(self.n_total_aircraft)
+            'des_id': range(x),
+            'ac_id': range(x),
+            'aircraft_name': ['strike'] * x,
+            'micap': ['IC_IZFS'] * x,
+            'part_id': range(x),
+            'sim_id': range(x)
         })
     
     def _create_condition_a_df(self):
         """
-        R code reference (main_r-code.R lines 76-139):
+        Creates condition A dataframe for parts waiting in available inventory.
         
-        leftover_parts <- if (n_total_parts > n_total_aircraft) {
-          seq(n_total_aircraft + 1, n_total_parts)
-        } else {
-          integer(0)
-        }
-        
-        condition_a_df <- if (length(leftover_parts) > 0) {
-          tibble(...with leftover part rows...)
-        } else {
-          tibble(...empty with same schema...)
-        }
+        R code reference (main_r-code.R lines 76-139)
         """
-        # Calculate leftover parts (not assigned to aircraft initially)
-        if self.n_total_parts > self.n_total_aircraft:
-            leftover_parts = list(range(self.n_total_aircraft, 
-                                       self.n_total_parts))
-        else:
-            leftover_parts = []
-        
-        # Create schema matching R code exactly
-        if len(leftover_parts) > 0:
-            # Parts start in available inventory at time 1
-            return pd.DataFrame({
-                'sim_id': [None] * len(leftover_parts),
-                'part_id': leftover_parts,
-                'desone_id': [None] * len(leftover_parts),
-                'acone_id': [None] * len(leftover_parts),
-                'micap': [None] * len(leftover_parts),
-                'fleet_duration': [np.nan] * len(leftover_parts),
-                'condition_f_duration': [np.nan] * len(leftover_parts),
-                'depot_duration': [np.nan] * len(leftover_parts),
-                'condition_a_duration': [np.nan] * len(leftover_parts),
-                'install_duration': [np.nan] * len(leftover_parts),
-                'fleet_start': [np.nan] * len(leftover_parts),
-                'fleet_end': [np.nan] * len(leftover_parts),
-                'condition_f_start': [np.nan] * len(leftover_parts),
-                'condition_f_end': [np.nan] * len(leftover_parts),
-                'depot_start': [np.nan] * len(leftover_parts),
-                'depot_end': [np.nan] * len(leftover_parts),
-                'destwo_id': [None] * len(leftover_parts),
-                'actwo_id': [None] * len(leftover_parts),
-                'condition_a_start': [1.0] * len(leftover_parts),
-                'condition_a_end': [np.nan] * len(leftover_parts),
-                'install_start': [np.nan] * len(leftover_parts),
-                'install_end': [np.nan] * len(leftover_parts),
-                'cycle': [0] * len(leftover_parts),
-                'condemn': ['no'] * len(leftover_parts)
-            })
-        else:
-            # Empty dataframe with same schema
-            return pd.DataFrame({
-                'sim_id': pd.Series(dtype='Int64'),
-                'part_id': pd.Series(dtype='Int64'),
-                'desone_id': pd.Series(dtype='Int64'),
-                'acone_id': pd.Series(dtype='Int64'),
-                'micap': pd.Series(dtype='object'),
-                'fleet_duration': pd.Series(dtype='float64'),
-                'condition_f_duration': pd.Series(dtype='float64'),
-                'depot_duration': pd.Series(dtype='float64'),
-                'condition_a_duration': pd.Series(dtype='float64'),
-                'install_duration': pd.Series(dtype='float64'),
-                'fleet_start': pd.Series(dtype='float64'),
-                'fleet_end': pd.Series(dtype='float64'),
-                'condition_f_start': pd.Series(dtype='float64'),
-                'condition_f_end': pd.Series(dtype='float64'),
-                'depot_start': pd.Series(dtype='float64'),
-                'depot_end': pd.Series(dtype='float64'),
-                'destwo_id': pd.Series(dtype='Int64'),
-                'actwo_id': pd.Series(dtype='Int64'),
-                'condition_a_start': pd.Series(dtype='float64'),
-                'condition_a_end': pd.Series(dtype='float64'),
-                'install_start': pd.Series(dtype='float64'),
-                'install_end': pd.Series(dtype='float64'),
-                'cycle': pd.Series(dtype='Int64'),
-                'condemn': pd.Series(dtype='object')
-            })
+        # Always return empty DataFrame with proper schema
+        return pd.DataFrame({
+            'sim_id': pd.Series(dtype='Int64'),
+            'part_id': pd.Series(dtype='Int64'),
+            'desone_id': pd.Series(dtype='Int64'),
+            'acone_id': pd.Series(dtype='Int64'),
+            'micap': pd.Series(dtype='object'),
+            'fleet_duration': pd.Series(dtype='float64'),
+            'condition_f_duration': pd.Series(dtype='float64'),
+            'depot_duration': pd.Series(dtype='float64'),
+            'condition_a_duration': pd.Series(dtype='float64'),
+            'install_duration': pd.Series(dtype='float64'),
+            'fleet_start': pd.Series(dtype='float64'),
+            'fleet_end': pd.Series(dtype='float64'),
+            'condition_f_start': pd.Series(dtype='float64'),
+            'condition_f_end': pd.Series(dtype='float64'),
+            'depot_start': pd.Series(dtype='float64'),
+            'depot_end': pd.Series(dtype='float64'),
+            'destwo_id': pd.Series(dtype='Int64'),
+            'actwo_id': pd.Series(dtype='Int64'),
+            'condition_a_start': pd.Series(dtype='float64'),
+            'condition_a_end': pd.Series(dtype='float64'),
+            'install_start': pd.Series(dtype='float64'),
+            'install_end': pd.Series(dtype='float64'),
+            'cycle': pd.Series(dtype='Int64'),
+            'condemn': pd.Series(dtype='object')
+        })
         
     # adding code for new_part_df
     def _create_new_part_df(self):
@@ -200,6 +152,7 @@ class DataFrameManager:
         return pd.DataFrame({
             'sim_id': [np.nan],
             'part_id': [self.n_total_parts],  # Start at next available ID
+            # this will result in part_id gaps ifs initial conditions fail to allocate all of n_total_parts
             'desone_id': [np.nan],
             'acone_id': [np.nan],
             'micap': [np.nan],
@@ -296,27 +249,39 @@ class DataFrameManager:
     
     def _create_micap_df(self):
         """
-        R code reference (main_r-code.R lines 146-156):
+        Creates MICAP dataframe for aircraft waiting for parts.
         
-        micap_df <- tibble::tibble(
-          des_id = integer(),
-          ac_id = integer(),
-          micap = character(),
-          ...empty columns...
-        )
+        Aircraft without parts start in MICAP at time 1.
+        Their ac_id continues after aircraft that got parts.
         """
-        # Empty DataFrame for tracking MICAP events
-        return pd.DataFrame({
-            'des_id': pd.Series(dtype='Int64'),
-            'ac_id': pd.Series(dtype='Int64'),
-            'micap': pd.Series(dtype='object'),
-            'fleet_duration': pd.Series(dtype='float64'),
-            'fleet_start': pd.Series(dtype='float64'),
-            'fleet_end': pd.Series(dtype='float64'),
-            'micap_duration': pd.Series(dtype='float64'),
-            'micap_start': pd.Series(dtype='float64'),
-            'micap_end': pd.Series(dtype='float64')
-        })
+        x = self.allocation['n_aircraft_w_out_parts']
+        micap_ac_ids = self.allocation['micap_ac_ids']
+        
+        if x > 0:
+            return pd.DataFrame({
+                'des_id': [None] * x,
+                'ac_id': micap_ac_ids,
+                'micap': ['IC_MICAP'] * x,
+                'fleet_duration': [np.nan] * x,
+                'fleet_start': [np.nan] * x,
+                'fleet_end': [np.nan] * x,
+                'micap_duration': [np.nan] * x,
+                'micap_start': [0] * x,
+                'micap_end': [np.nan] * x
+            })
+        else:
+            # Empty DataFrame with same schema
+            return pd.DataFrame({
+                'des_id': pd.Series(dtype='Int64'),
+                'ac_id': pd.Series(dtype='Int64'),
+                'micap': pd.Series(dtype='object'),
+                'fleet_duration': pd.Series(dtype='float64'),
+                'fleet_start': pd.Series(dtype='float64'),
+                'fleet_end': pd.Series(dtype='float64'),
+                'micap_duration': pd.Series(dtype='float64'),
+                'micap_start': pd.Series(dtype='float64'),
+                'micap_end': pd.Series(dtype='float64')
+            })
     
     def trim_dataframes(self):
         """
