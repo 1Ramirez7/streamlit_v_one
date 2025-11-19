@@ -1,5 +1,5 @@
 import streamlit as st
-from streamlit_app.simulation_engine import SimulationEngine
+from simulation_engine import SimulationEngine
 from plotnine import ggplot, aes, geom_line, labs, theme_minimal
 
 def render_wip_plots(sim_engine: SimulationEngine):

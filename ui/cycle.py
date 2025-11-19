@@ -2,7 +2,7 @@ import streamlit as st
 import plotly.graph_objects as go
 import math
 import pandas as pd
-from streamlit_app.simulation_engine import SimulationEngine
+from simulation_engine import SimulationEngine
 
 def render_cycle(sim_engine: SimulationEngine):
     sim_time = sim_engine.df.sim_time
