@@ -1,9 +1,3 @@
-"""
-Simple plotting functions for Hill AFB DES Simulation.
-
-Creates basic visualizations of stage durations.
-"""
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -17,6 +11,30 @@ def plot_fleet_duration(sim_df):
     ax.set_xlabel('Duration (days)')
     ax.set_ylabel('Frequency')
     ax.set_title(f'Fleet: Fleet Duration Distribution\nMean: {durations.mean():.2f} days')
+    ax.grid(axis='y', alpha=0.3)
+    
+    return fig
+
+def plot_fleet_duration_filtered(sim_df, n_aircraft_with_parts):
+    """Simple histogram of Fleet durations excluding initial conditions."""
+    # Filter out initial condition sim_ids (1 to n_aircraft_with_parts)
+    filtered_df = sim_df[sim_df['sim_id'] > n_aircraft_with_parts]
+    durations = filtered_df['fleet_duration'].dropna()
+    
+    if len(durations) == 0:
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.text(0.5, 0.5, 'No fleet duration data after filtering initial conditions', 
+                ha='center', va='center', fontsize=14)
+        ax.set_title('Fleet Duration Distribution (Filtered)')
+        ax.set_xlabel('Duration (days)')
+        ax.set_ylabel('Frequency')
+        return fig
+    
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.hist(durations, bins=30, color='steelblue', edgecolor='black', alpha=0.7)
+    ax.set_xlabel('Duration (days)')
+    ax.set_ylabel('Frequency')
+    ax.set_title(f'Fleet: Fleet Duration Distribution (Filtered)\nMean: {durations.mean():.2f} days')
     ax.grid(axis='y', alpha=0.3)
     
     return fig
@@ -47,6 +65,29 @@ def plot_depot_duration(sim_df):
     
     return fig
 
+def plot_depot_duration_filtered(sim_df, depot_part_ids):
+    """Simple histogram of Depot durations excluding initial conditions."""
+    filtered_df = sim_df[(~sim_df['sim_id'].isin(depot_part_ids)) & (sim_df['condemn'] != 'yes')]
+    durations = filtered_df['depot_duration'].dropna()
+    
+    if len(durations) == 0:
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.text(0.5, 0.5, 'No depot duration data after filtering initial conditions', 
+                ha='center', va='center', fontsize=14)
+        ax.set_title('Depot Duration Distribution (Filtered)')
+        ax.set_xlabel('Duration (days)')
+        ax.set_ylabel('Frequency')
+        return fig
+    
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.hist(durations, bins=30, color='mediumseagreen', edgecolor='black', alpha=0.7)
+    ax.set_xlabel('Duration (days)')
+    ax.set_ylabel('Frequency')
+    ax.set_title(f'Depot: Depot Duration Distribution (Filtered)\nMean: {durations.mean():.2f} days')
+    ax.grid(axis='y', alpha=0.3)
+    
+    return fig
+
 def plot_install_duration(sim_df):
     """Simple histogram of Condition A Install durations."""
     durations = sim_df['install_duration'].dropna()
@@ -62,26 +103,7 @@ def plot_install_duration(sim_df):
 
 def plot_micap_over_time(des_df):
     """
-    R code reference (user-provided R code):
-    
-    micap_events <- des_df |>
-      dplyr::filter(!is.na(micap_start) & !is.na(micap_end)) |>
-      dplyr::select(micap_start, micap_end) |>
-      tidyr::pivot_longer(cols = everything(), 
-                          names_to = "event_type", 
-                          values_to = "time") |>
-      dplyr::mutate(
-        change = dplyr::if_else(event_type == "micap_start", 1, -1)
-      ) |>
-      dplyr::arrange(time) |>
-      dplyr::mutate(
-        n_micap = cumsum(change)
-      )
-    
-    ggplot2::ggplot(micap_events, ggplot2::aes(x = time, y = n_micap)) +
-      ggplot2::geom_step() +
-      ggplot2::labs(...) +
-      ggplot2::theme_minimal()
+    Need to update this to use MicapState classes
     """
     
     # Python implementation:
@@ -130,7 +152,7 @@ def plot_micap_over_time(des_df):
     return fig
 
 
-def plot_wip_over_time(wip_df):
+def plot_wip_over_time(wip_df): # 777
     """
     Plot work-in-progress (WIP) levels over time for parts and aircraft.
     

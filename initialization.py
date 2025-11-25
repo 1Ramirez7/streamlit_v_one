@@ -26,7 +26,7 @@ class Initialization:
             self.engine: Used to call add_sim_event, add_des_event, duration
                 formulas, ID generators, and to access depot queue state.
             self.df: Direct reference to sim_engine.df so initialization
-                functions can modify sim_df, des_df, condition_a_df, micap_df,
+                functions can modify sim_df, des_df, condition_a_df,
                 and aircraft_df during warmup.
         """
         self.engine = sim_engine
@@ -356,6 +356,8 @@ class Initialization:
         """
         # Get list of part_ids BEFORE starting the loop
         part_ids = self.df.condition_a_df['part_id'].tolist()
+
+        eventtype="IC_MICAP"
         
         # Now iterate over part_ids (not the dataframe)
         for part_id in part_ids:
@@ -364,15 +366,14 @@ class Initialization:
             condition_a_start = part_row['condition_a_start']
             cycle = part_row['cycle']
             
-            # Check if any aircraft MICAP
-            micap_aircraft = self.df.micap_df[self.df.micap_df['micap'] == 'IC_MICAP']
-            n_micap = len(micap_aircraft)
-            
-            if n_micap == 0: # PATH 1: No MICAP - End processing for this and all remaining parts
+            # applying micap class 787 new
+            micap_pa_rm = self.engine.micap_state.pop_and_rm_first(condition_a_start, event_type=eventtype)
+
+            if micap_pa_rm is None: # PATH 1: No MICAP - End processing for this and all remaining parts
                 break
             else: # --- PATH 2: MICAP exists ---
-                # Get first MICAP aircraft (sorted by ac_id)
-                first_micap = micap_aircraft.sort_values('ac_id').iloc[0]
+                # can just call self.micap_state.remove_aircraft? micap77
+                first_micap = micap_pa_rm
                 
                 # Calculate install timing
                 d4_install = self.engine.calculate_install_duration()
@@ -482,11 +483,6 @@ class Initialization:
                 # Remove part from condition_a_df
                 self.df.condition_a_df = self.df.condition_a_df[
                     self.df.condition_a_df['part_id'] != part_id
-                ].reset_index(drop=True)
-                
-                # Remove resolved MICAP from micap_df
-                self.df.micap_df = self.df.micap_df[
-                    self.df.micap_df['ac_id'] != first_micap['ac_id']
                 ].reset_index(drop=True)
 
 

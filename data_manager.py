@@ -20,7 +20,6 @@ class DataFrameManager:
     - des_df: Aircraft event log (pre-allocated)
     - aircraft_df: Initial aircraft-part assignments
     - condition_a_df: Parts waiting in inventory
-    - micap_df: Aircraft waiting for parts
     """
     
     def __init__(self, n_total_parts, n_total_aircraft, sim_time,
@@ -30,10 +29,6 @@ class DataFrameManager:
         self, 
         n_total_parts: int, 
         n_total_aircraft: int,  ....
-        
-        Initialize DataFrameManager with simulation parameters.
-        
-        R code reference (main_r-code.R lines 1-11, 15-21, 67-156)
         """
         # Store parameters
         self.n_total_parts = n_total_parts
@@ -52,7 +47,6 @@ class DataFrameManager:
         self.new_part_df = self._create_new_part_df() # adding to handle new part logic
         self.sim_df = self._create_sim_df()
         self.des_df = self._create_des_df()
-        self.micap_df = self._create_micap_df()
         
         # Initialize row counters (R lines 145-146)
         self.current_sim_row = 0  # Python 0-based (will use as index)
@@ -62,12 +56,8 @@ class DataFrameManager:
     
     def _calculate_max_events(self):
         """
-        R code reference (main_r-code.R lines 15-21):
-        
-        min_cycle_time <- sone_mean + stwo_mean + sthree_mean + sfour_mean
-        max_cycles_per_part <- ceiling(sim_time / min_cycle_time)
-        max_sim_events <- n_total_parts * max_cycles_per_part * 3
-        max_des_events <- n_total_aircraft * max_cycles_per_part * 2
+        Calculates possible number of events to pre-allocate rows to the SIM and DES dataframes
+        Not needed once we stop using pandas dfs
         """
         # Calculate minimum cycle time
         min_cycle_time = (self.sone_mean + self.sthree_mean)
@@ -100,8 +90,6 @@ class DataFrameManager:
     def _create_condition_a_df(self):
         """
         Creates condition A dataframe for parts waiting in available inventory.
-        
-        R code reference (main_r-code.R lines 76-139)
         """
         # Always return empty DataFrame with proper schema
         return pd.DataFrame({
@@ -136,7 +124,6 @@ class DataFrameManager:
         """
         Create DataFrame for tracking the next available part_id to be created.
         
-        R code reference: This is NEW logic not in main_r-code.R
         Purpose: Track next part_id when dynamic part creation is needed
         
         Initial state: Single row with part_id = n_total_parts (30 if n_total_parts=30)
@@ -179,14 +166,10 @@ class DataFrameManager:
 
     def _create_sim_df(self):
         """
-        R code reference (main_r-code.R lines 97-122):
-        
-        sim_df <- tibble::tibble(
-          sim_id = rep(NA_integer_, max_sim_events),
-          part_id = rep(NA_integer_, max_sim_events),
-          desone_id = rep(NA_integer_, max_sim_events),
-          ...all columns with rep(NA_real_/NA_integer_/NA_character_, max_sim_events)...
-        )
+        MAIN event tracker for parts 
+        Every event timing and related information is log in this sim_df
+
+        Not 100% log because event handlers edit the dataframe 
         """
         # Pre-allocated DataFrame for part events
         return pd.DataFrame({
@@ -218,14 +201,10 @@ class DataFrameManager:
     
     def _create_des_df(self):
         """
-        R code reference (main_r-code.R lines 125-141):
-        
-        des_df <- tibble::tibble(
-          des_id = rep(NA_integer_, max_des_events),
-          ac_id = rep(NA_integer_, max_des_events),
-          micap = rep(NA_character_, max_des_events),
-          ...all columns with rep(NA_real_/NA_integer_/NA_character_, max_des_events)...
-        )
+        MAIN event tracker for AIRCRAFT 
+        Every event timing and related information is log here.
+
+        Not 100% log because event handlers edit the dataframe 
         """
         # Pre-allocated DataFrame for aircraft events
         return pd.DataFrame({
@@ -247,48 +226,13 @@ class DataFrameManager:
             'install_end': [np.nan] * self.max_des_events
         })
     
-    def _create_micap_df(self):
-        """
-        Creates MICAP dataframe for aircraft waiting for parts.
-        
-        Aircraft without parts start in MICAP at time 1.
-        Their ac_id continues after aircraft that got parts.
-        """
-        x = self.allocation['n_aircraft_w_out_parts']
-        micap_ac_ids = self.allocation['micap_ac_ids']
-        
-        if x > 0:
-            return pd.DataFrame({
-                'des_id': [None] * x,
-                'ac_id': micap_ac_ids,
-                'micap': ['IC_MICAP'] * x,
-                'fleet_duration': [np.nan] * x,
-                'fleet_start': [np.nan] * x,
-                'fleet_end': [np.nan] * x,
-                'micap_duration': [np.nan] * x,
-                'micap_start': [0] * x,
-                'micap_end': [np.nan] * x
-            })
-        else:
-            # Empty DataFrame with same schema
-            return pd.DataFrame({
-                'des_id': pd.Series(dtype='Int64'),
-                'ac_id': pd.Series(dtype='Int64'),
-                'micap': pd.Series(dtype='object'),
-                'fleet_duration': pd.Series(dtype='float64'),
-                'fleet_start': pd.Series(dtype='float64'),
-                'fleet_end': pd.Series(dtype='float64'),
-                'micap_duration': pd.Series(dtype='float64'),
-                'micap_start': pd.Series(dtype='float64'),
-                'micap_end': pd.Series(dtype='float64')
-            })
-    
     def trim_dataframes(self):
         """
-        R code reference (main_r-code.R lines 755-757):
-        
-        sim_df <- sim_df[1:(current_sim_row - 1), ]
-        des_df <- des_df[1:(current_des_row - 1), ]
+        Trims SIM and DES dataframes at end of simulation
+
+        _calculate_max_events pre-allocates x-number of rows 
+        and this function rmeoves unsused rows before SIM and DES are
+        use for filtering. 
         """
         # Remove unused pre-allocated rows
         self.sim_df = self.sim_df.iloc[:self.current_sim_row].copy()
@@ -310,9 +254,7 @@ class DataFrameManager:
     
     def validate_structure(self):
         """
-        R code reference (main_r-code.R lines 759-774):
-        
-        Validation checks after trimming.
+        Tracks how effective _calculate_max_events is!
         """
         validation_results = {
             'sim_df_rows_used': self.current_sim_row,
@@ -356,8 +298,7 @@ class DataFrameManager:
         """
         sim = self.sim_df
         des = self.des_df
-        cond_a = self.condition_a_df
-        micap = self.micap_df
+        cond_a = self.condition_a_df # remove MICAP due to class. still need to figure out to use it here
         
         metrics = []
         for day in range(1, self.sim_time + 1):
@@ -378,9 +319,6 @@ class DataFrameManager:
             
             # Aircraft metrics
             aircraft_in_fleet = ((des['fleet_start'] <= day) & (day < des['fleet_end'])).sum()
-            aircraft_in_micap = ((micap['micap_start'] <= day) & (day < micap['micap_end'])).sum()
-            aircraft_entering_micap = (micap['micap_start'].round() == day).sum()
-            aircraft_leaving_micap = (micap['micap_end'].round() == day).sum()
             
             metrics.append({
                 'day': day,
@@ -398,10 +336,7 @@ class DataFrameManager:
                 'parts_entering_condition_a': parts_entering_condition_a,
                 'parts_leaving_condition_a': parts_leaving_condition_a,
                 # Aircraft
-                'aircraft_in_fleet': aircraft_in_fleet,
-                'aircraft_in_micap': aircraft_in_micap,
-                'aircraft_entering_micap': aircraft_entering_micap,
-                'aircraft_leaving_micap': aircraft_leaving_micap
+                'aircraft_in_fleet': aircraft_in_fleet
             })
         
         return pd.DataFrame(metrics)

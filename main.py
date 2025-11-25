@@ -25,16 +25,17 @@ warnings.simplefilter("ignore", category=FutureWarning)
 from data_manager import DataFrameManager
 from simulation_engine import SimulationEngine
 from ui.ui_components import render_sidebar
-from ui.cycle import render_cycle
 from ui.wip_plots import render_wip_plots
 from utils import calculate_initial_allocation
 from plotting import (
     plot_fleet_duration,
+    plot_fleet_duration_filtered,
     plot_condition_f_duration,
     plot_depot_duration,
+    plot_depot_duration_filtered,
     plot_install_duration,
     plot_micap_over_time,
-    plot_wip_over_time
+    plot_wip_over_time # 777
 )
 
 def main() -> None:
@@ -81,8 +82,10 @@ def main() -> None:
             # Create SimulationEngine
             engine = SimulationEngine(
                 df_manager=df_manager,
+                sone_dist=params['sone_dist'],
                 sone_mean=params['sone_mean'],
                 sone_sd=params['sone_sd'],
+                sthree_dist=params['sthree_dist'],
                 sthree_mean=params['sthree_mean'],
                 sthree_sd=params['sthree_sd'],
                 sim_time=params['sim_time'],
@@ -100,13 +103,13 @@ def main() -> None:
                 depot_rand_max=params['depot_rand_max']
             )
             
-            # Define progress callback for live updates
+            # Define progress callback for live updates 777
             def update_progress(event_type, event_count, total_count):
                 progress_placeholder.write(f"**Processing Events:** {total_count:,} total")
                 event_details.caption(f"Latest: {event_type} (#{event_count})")
             
             # Run simulation with progress tracking
-            validation_results = engine.run(progress_callback=update_progress)
+            validation_results = engine.run(progress_callback=update_progress) # progress_callback=update_progress 777
             
             # Clear progress displays
             progress_placeholder.empty()
@@ -114,7 +117,7 @@ def main() -> None:
         
         st.success("Simulation complete!")
         
-        # Display event summary
+        # Display event summary 777
         if 'event_counts' in validation_results:
             st.subheader("📊 Event Processing Summary")
             event_counts = validation_results['event_counts']
@@ -133,7 +136,7 @@ def main() -> None:
             tab1, tab2, tab3 = st.tabs(["Cycle", "Simulation Results", "WIP Plots"])
 
             with tab1:
-                render_cycle(sim_engine=engine)
+                st.write("Coming soon")
 
             with tab2:
                 st.subheader("📊 Simulation Statistics")
@@ -165,10 +168,6 @@ def main() -> None:
                 with st.expander("des_df (Aircraft Event Log) - First 10 Rows"):
                     st.dataframe(df_manager.des_df.head(10))
                 
-                if 'daily_metrics' in validation_results:
-                    with st.expander("daily_metrics (Daily Metrics) - First 10 Rows"):
-                        st.dataframe(validation_results['daily_metrics'].head(10))
-                
                 # --- Plot Results ---
                 st.subheader("📈 Stage Duration Distributions")
                 
@@ -193,7 +192,7 @@ def main() -> None:
                 fig5 = plot_micap_over_time(df_manager.des_df) # controls what df plotting.py uses
                 st.pyplot(fig5)
 
-                # Plot WIP over time
+                # Plot WIP over time 777
                 if 'wip_history' in validation_results and len(validation_results['wip_history']) > 0:
                     st.subheader("📈 Work-in-Progress Over Time")
                     fig6 = plot_wip_over_time(validation_results['wip_history'])
@@ -210,8 +209,6 @@ def main() -> None:
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     df_manager.sim_df.to_excel(writer, sheet_name='sim_df', index=False)
                     df_manager.des_df.to_excel(writer, sheet_name='des_df', index=False)
-                    if 'daily_metrics' in validation_results:
-                        validation_results['daily_metrics'].to_excel(writer, sheet_name='daily_metrics', index=False)
                 
                 excel_data = output.getvalue()
                 
@@ -222,7 +219,31 @@ def main() -> None:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
             with tab3:
-                render_wip_plots(sim_engine=engine)
+                st.subheader("📈 Fleet Duration Comparison")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("**Fleet Duration (All Data)**")
+                    fig_all = plot_fleet_duration(df_manager.sim_df)
+                    st.pyplot(fig_all)
+                
+                with col2:
+                    st.write("**Fleet Duration (Filtered - No Initial Conditions)**")
+                    fig_filtered = plot_fleet_duration_filtered(df_manager.sim_df, allocation['n_aircraft_with_parts'])
+                    st.pyplot(fig_filtered)
+                
+                st.subheader("📈 Depot Duration Comparison")
+                
+                col3, col4 = st.columns(2)
+                with col3:
+                    st.write("**Depot Duration (All Data)**")
+                    fig_depot_all = plot_depot_duration(df_manager.sim_df)
+                    st.pyplot(fig_depot_all)
+                
+                with col4:
+                    st.write("**Depot Duration (Filtered - No Initial Conditions)**")
+                    fig_depot_filtered = plot_depot_duration_filtered(df_manager.sim_df, allocation['depot_part_ids'])
+                    st.pyplot(fig_depot_filtered)
     
     else:
         st.info("Adjust parameters in the sidebar and click **Run Simulation** to begin.")

@@ -27,34 +27,36 @@ warnings.simplefilter("ignore", category=FutureWarning)
 np.random.seed(132)
 
 # Simulation parameters (matching ui_components.py defaults)
-n_total_parts = 1100 # 35
-n_total_aircraft = 900 # 30
+n_total_parts = 12 # 35
+n_total_aircraft = 10 # 30
 
 # NEW: Mission capable rate
 mission_capable_rate = 0.60 # 0.60 
 
 # Timeline parameters
 warmup_periods = 0
-analysis_periods = 4200
+analysis_periods = 6200
 closing_periods = 0
 sim_time = warmup_periods + analysis_periods + closing_periods  # Total: 500 days
 
 # Stage duration parameters
-sone_mean = 365 # 10
-sone_sd = 10 # 1
-sthree_mean = 90.0 # 1.0
+sone_dist = "Weibull"  # Distribution type for Fleet stage
+sone_mean = 9.17  # Shape parameter for Weibull
+sone_sd = 384.13  # Scale parameter for Weibull
+sthree_dist = "Normal"  # Distribution type for Depot stage  
+sthree_mean = 40.0 # 1.0
 sthree_sd = 1.2 # 0.2
 
 # Depot capacity
-depot_capacity = 500 # 20
-condemn_cycle = 20 # 20
+depot_capacity = 6 # 20
+condemn_cycle = 10 # 20
 condemn_depot_fraction = 0.10 # 0.10
-part_order_lag = 365 # 25
+part_order_lag = 55 # 25
 
 # NEW: Hardcoded initial part allocation (manually set for testing)
-parts_in_depot = 245 # 5
-parts_in_cond_f = 200 # 12
-parts_in_cond_a = 115 # 0
+parts_in_depot = 2 # 5
+parts_in_cond_f = 2 # 12
+parts_in_cond_a = 2 # 0
 
 # Randomization initial fleet and depot durations
 # functions: init_fleet_random & init_depot_random
@@ -115,8 +117,10 @@ df_manager = DataFrameManager(
 # Create SimulationEngine
 sim_engine = SimulationEngine(
     df_manager=df_manager,
+    sone_dist=sone_dist,
     sone_mean=sone_mean,
     sone_sd=sone_sd,
+    sthree_dist=sthree_dist,
     sthree_mean=sthree_mean,
     sthree_sd=sthree_sd,
     sim_time=sim_time,

@@ -1,12 +1,16 @@
-"""
-Simulation Engine for Hill AFB DES Simulation
-Handles simulation logic, formulas, and event processing.
-"""
-
 import numpy as np
+from scipy.special import gamma
 import pandas as pd
 import heapq
-from initialization import Initialization
+
+try:
+    # Try relative imports first (when used as module)
+    from .initialization import Initialization
+    from .micap_state import MicapState
+except ImportError:
+    # Fall back to absolute imports (when run directly)
+    from initialization import Initialization
+    from micap_state import MicapState
 
 class SimulationEngine:
     """
@@ -16,14 +20,13 @@ class SimulationEngine:
     Contains formulas for stage durations and helper functions for event management.
     """
     
-    def __init__(self, df_manager, sone_mean, sone_sd, sthree_mean, sthree_sd, 
+    def __init__(self, df_manager, sone_dist, sone_mean, sone_sd, sthree_dist, sthree_mean, sthree_sd, 
                  sim_time, depot_capacity,condemn_cycle, condemn_depot_fraction,  part_order_lag,
                  use_fleet_rand, fleet_rand_min, fleet_rand_max, use_depot_rand, depot_rand_min, 
                  depot_rand_max):
         """
         Initialize SimulationEngine with DataFrameManager and stage parameters.
         
-        Parameters from main_r-code.R lines 1-11.
         
         Args:
             df_manager: DataFrameManager instance with all DataFrames
@@ -38,8 +41,10 @@ class SimulationEngine:
         'part_order_lag': part_order_lag, # new params for depot logic
         """
         self.df = df_manager
+        self.sone_dist = sone_dist
         self.sone_mean = sone_mean
         self.sone_sd = sone_sd
+        self.sthree_dist = sthree_dist
         self.sthree_mean = sthree_mean
         self.sthree_sd = sthree_sd
         self.sim_time = sim_time
@@ -60,13 +65,18 @@ class SimulationEngine:
         self.event_heap = []  # Priority queue: (time, counter, event_type, entity_id)
         self.event_counter = 0  # FIFO tie-breaker for same-time events
         self.current_time = 0  # Simulation clock
+        self.micap_state = MicapState()  # Manage MICAP aircraft
+        
+        # Initialize MICAP state with initial conditions micap787
+        if hasattr(df_manager, 'allocation'):
+            self.micap_state._create_micap_df(df_manager.allocation)
 
-        # WIP tracking
+        # WIP tracking 777
         self.wip_history = []  # List of (time, wip_snapshot) tuples
         self.wip_snapshot_interval = 1.0  # Record WIP every 1 day
         self.next_wip_time = 0.0
 
-        # Event tracking for progress display
+        # Event tracking for progress display 777
         self.event_counts = {
             'depot_complete': 0,
             'fleet_complete': 0,
@@ -76,18 +86,22 @@ class SimulationEngine:
             'part_condemn': 0,
             'total': 0
         }
-        self.progress_callback = None  # Callback for UI updates
+        self.progress_callback = None  # Callback for UI updates 777 end
     
     # ==========================================================================
     # STAGE DURATION FORMULAS
     # ==========================================================================
-    
+        
     def calculate_fleet_duration(self):
         """
-        normal distribution
+        Calculates distribution for length of stage based on chosen distribution:
+        Normal or Weibull
         """
-        return max(0, np.random.normal(self.sone_mean, self.sone_sd))
-    
+        if self.sone_dist == "Normal":
+            return max(0, np.random.normal(self.sone_mean, self.sone_sd))
+        elif self.sone_dist == "Weibull":
+            return max(0, np.random.weibull(self.sone_mean) * self.sone_sd)
+
     def calculate_condition_f_duration(self):
         """
         Not in use, delete or leave as spacer
@@ -96,9 +110,13 @@ class SimulationEngine:
     
     def calculate_depot_duration(self):
         """
-        Normal Distribution
+        Calculates distribution for length of stage based on chosen distribution:
+        Normal or Weibull
         """
-        return max(0, np.random.normal(self.sthree_mean, self.sthree_sd))
+        if self.sthree_dist == "Normal":
+            return max(0, np.random.normal(self.sthree_mean, self.sthree_sd))
+        elif self.sone_dist == "Weibull":
+            return max(0, np.random.weibull(self.sthree_mean) * self.sthree_sd)
     
     def calculate_install_duration(self):
         """
@@ -555,7 +573,7 @@ class SimulationEngine:
         # 4. Schedule Condition F PART-EVENTS (CF_DE parts)
         cond_f_parts = filled_sim[
             ((filled_sim['micap'] == 'IC_IjCF') & (filled_sim['condition_f_start'] == 0)) |
-            (filled_sim['micap'] == 'IC_FE_CF')] 
+            (filled_sim['micap'] == 'IC_FE_CF')]  # IMPORTANT: DONT add IC_FE_CF that DONT
         for _, row in cond_f_parts.iterrows():
             self.schedule_event(row['condition_f_start'], 'CF_DE', row['sim_id'])
     
@@ -586,10 +604,6 @@ class SimulationEngine:
         part_row = filled_sim_df[filled_sim_df['sim_id'] == sim_id].iloc[0]
         
         s3_end = part_row['depot_end']
-        
-        # Check if any aircraft in MICAP
-        micap_aircraft = self.df.micap_df[self.df.micap_df['micap_end'].isna()].copy()
-        n_micap = len(micap_aircraft)
 
         eventtypeca="DE_CA" # sim_df
         eventtypemi="DE_MI" # sim & des DFs - part resolve micap & cycle ends
@@ -597,8 +611,11 @@ class SimulationEngine:
         eventtypedesmi="DE_SMI" # AC started micap & resolve
         eventtypedesmi="DE_SMI_CR" # AC started micap & CR
         
+        # Check if any aircraft in MICAP 787 new
+        micap_pa_rm = self.micap_state.pop_and_rm_first(s3_end, event_type=eventtypemi)
+        
         # CASE A1: No MICAP aircraft → Part goes to Condition A
-        if n_micap == 0:
+        if micap_pa_rm is None:
             # Create new row for condition_a_df
             new_row = pd.DataFrame([{
                 'sim_id': part_row['sim_id'],
@@ -633,8 +650,8 @@ class SimulationEngine:
         
         # CASE A2: MICAP aircraft exists → Install part directly
         else:
-            # Get first MICAP aircraft (earliest micap_start)
-            first_micap = micap_aircraft.sort_values('micap_start').iloc[0]
+            # Use micap info fetch in micap_pa_rm.
+            first_micap = micap_pa_rm # do i need this if replace first_micap with micap_pa_rm
             
             # Calculate install duration
             d4_install = self.calculate_install_duration()
@@ -788,10 +805,6 @@ class SimulationEngine:
                 new_des_id=new_des_id_restart
             )
             
-            # Remove resolved MICAP from micap_df
-            self.df.micap_df = self.df.micap_df[
-                self.df.micap_df['ac_id'] != first_micap['ac_id']
-            ].reset_index(drop=True)
     
     def handle_aircraft_needs_part(self, des_id):
         """
@@ -1053,21 +1066,15 @@ class SimulationEngine:
         else:
             micap_start_time = s1_end
             
-            # Log to micap_df
-            new_micap = pd.DataFrame([{
-                'des_id': des_id,
-                'ac_id': ac_row['ac_id'],
-                'micap': eventtype,
-                'fleet_duration': ac_row['fleet_duration'],
-                'fleet_start': ac_row['fleet_start'],
-                'fleet_end': ac_row['fleet_end'],
-                'micap_duration': np.nan,
-                'micap_start': micap_start_time,
-                'micap_end': np.nan
-            }])
-            self.df.micap_df = pd.concat(
-                [self.df.micap_df, new_micap],
-                ignore_index=True
+            # Add aircraft to MICAP state micap787
+            self.micap_state.add_aircraft(
+                des_id=des_id,
+                ac_id=ac_row['ac_id'],
+                micap_type=eventtype,
+                fleet_duration=ac_row['fleet_duration'],
+                fleet_start=ac_row['fleet_start'],
+                fleet_end=ac_row['fleet_end'],
+                micap_start=micap_start_time
             )
 
     def handle_new_part_arrives(self, part_id):
@@ -1106,13 +1113,11 @@ class SimulationEngine:
         eventtypensmi="PNEW_SMICAP" # resolve MICAP for AC started MICAP
         eventtypensmicr="PNEW_SMI_CR" # CR for AC started MICAP
 
-        
-        # Check if any aircraft currently in MICAP
-        micap_aircraft = self.df.micap_df[self.df.micap_df['micap_end'].isna()]
-        n_micap = len(micap_aircraft)
+        # Check if any aircraft currently in MICAP micap787 new
+        micap_npa_rm = self.micap_state.pop_and_rm_first(condition_a_start, event_type=eventtypenma)
         
         # --- PATH 1: No MICAP → Part goes to condition_a_df ---
-        if n_micap == 0:
+        if micap_npa_rm is None:
             # Add to condition_a_df with only part_id, condition_a_start, cycle
             new_row = pd.DataFrame({
                 'sim_id': [np.nan],
@@ -1150,8 +1155,8 @@ class SimulationEngine:
             
         # --- PATH 2: MICAP exists → Install directly ---
         else:
-            # Get first MICAP aircraft
-            first_micap = micap_aircraft.sort_values('micap_start').iloc[0]
+            # Use micap info fetch in micap_npa_rm.
+            first_micap = micap_npa_rm # do i need this if replace first_micap with micap_npa_rm
             
             # Calculate install timing
             d4_install = self.calculate_install_duration()
@@ -1332,10 +1337,6 @@ class SimulationEngine:
                 self.df.new_part_df['part_id'] != part_id
             ].reset_index(drop=True)
             
-            # --- Remove resolved MICAP from micap_df ---
-            self.df.micap_df = self.df.micap_df[
-                self.df.micap_df['ac_id'] != first_micap['ac_id']
-            ].reset_index(drop=True)
 
 
     #def event_cf_de(self, sim_id):
@@ -1395,7 +1396,7 @@ class SimulationEngine:
         # Schedule depot completion event (standard flow from here)
         self.schedule_event(d_end, 'depot_complete', sim_id)
 
-    def _record_wip_snapshot(self):
+    def _record_wip_snapshot(self): # 777
         """Record current work-in-progress counts at current_time."""
         # Get filled dataframes
         filled_sim = self.df.sim_df.iloc[:self.df.current_sim_row]
@@ -1404,28 +1405,24 @@ class SimulationEngine:
         # Count parts in each stage (parts currently active in stage)
         parts_in_fleet = len(filled_sim[
             (filled_sim['fleet_start'] <= self.current_time) & 
-            (filled_sim['fleet_end'] > self.current_time)
-        ])
+            (filled_sim['fleet_end'] > self.current_time)])
         
         parts_in_condition_f = len(filled_sim[
             (filled_sim['condition_f_start'] <= self.current_time) & 
-            (filled_sim['condition_f_end'] > self.current_time)
-        ])
+            (filled_sim['condition_f_end'] > self.current_time)])
         
         parts_in_depot = len(filled_sim[
             (filled_sim['depot_start'] <= self.current_time) & 
-            (filled_sim['depot_end'] > self.current_time)
-        ])
+            (filled_sim['depot_end'] > self.current_time)])
         
         parts_in_condition_a = len(self.df.condition_a_df)  # Available parts waiting
         
         # Count aircraft in each stage
         aircraft_in_fleet = len(filled_des[
             (filled_des['fleet_start'] <= self.current_time) & 
-            (filled_des['fleet_end'] > self.current_time)
-        ])
+            (filled_des['fleet_end'] > self.current_time)])
         
-        aircraft_in_micap = len(self.df.micap_df[self.df.micap_df['micap_end'].isna()])
+        aircraft_in_micap = self.micap_state.count_active()
         
         # Record snapshot
         snapshot = {
@@ -1442,7 +1439,7 @@ class SimulationEngine:
 
 
 
-    def run(self, progress_callback=None):
+    def run(self, progress_callback=None): # , progress_callback=None 777 lone
         """
         Execute event-driven discrete-event simulation.
 
@@ -1473,7 +1470,7 @@ class SimulationEngine:
         # Phase 2: Schedule all initial events
         self._schedule_initial_events()
 
-        # Record initial WIP
+        # Record initial WIP 777
         self._record_wip_snapshot()
         
         # Phase 3: Event-driven main loop
@@ -1488,16 +1485,16 @@ class SimulationEngine:
             # Advance simulation clock
             self.current_time = event_time
 
-            # Record WIP snapshots at regular intervals
+            # Record WIP snapshots at regular intervals 777
             if self.current_time >= self.next_wip_time:
                 self._record_wip_snapshot()
                 self.next_wip_time += self.wip_snapshot_interval
             
-            # Track event processing
+            # Track event processing 777
             self.event_counts[event_type] = self.event_counts.get(event_type, 0) + 1
             self.event_counts['total'] += 1
             
-            # Update progress UI. callback provided
+            # Update progress UI. callback provided 777
             if self.progress_callback and self.event_counts['total'] % 100 == 0:
                 self.progress_callback(event_type, self.event_counts[event_type], 
                                     self.event_counts['total'])
@@ -1522,18 +1519,16 @@ class SimulationEngine:
             elif event_type == 'part_condemn':
                 self.event_p_condemn(entity_id)
 
-        # Final WIP snapshot
+        # Final WIP snapshot 777
         self._record_wip_snapshot()
 
-        # Phase 4: Post-processing
+        # Phase 4: Post-processing 777
         self.df.trim_dataframes()
         validation_results = self.df.validate_structure()
-        daily_metrics = self.df.create_daily_metrics()
-        validation_results['daily_metrics'] = daily_metrics
         
-        # Add event counts to results
+        # Add event counts to results 777
         validation_results['event_counts'] = self.event_counts.copy()
-        # Add WIP history to results
+        # Add WIP history to results 777
         validation_results['wip_history'] = pd.DataFrame(self.wip_history)
         
         return validation_results
