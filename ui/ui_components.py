@@ -16,7 +16,7 @@ def render_sidebar():
     n_total_parts = st.sidebar.number_input(
         "Total Parts",
         min_value=1,
-        value=1100,  # 35
+        value=24,  # 1100
         step=1,
         help="Total number of parts in the system"
     )
@@ -24,7 +24,7 @@ def render_sidebar():
     n_total_aircraft = st.sidebar.number_input(
         "Total Aircraft",
         min_value=1,
-        value=900,  # 30
+        value=20,  # 900
         step=1,
         help="Total number of aircraft in the fleet"
     )
@@ -62,7 +62,7 @@ def render_sidebar():
     depot_capacity = st.sidebar.number_input(
         "Depot Capacity",
         min_value=1,
-        value=30,
+        value=10,
         step=1,
         help="Maximum number of parts that can be in the depot at once"
     )

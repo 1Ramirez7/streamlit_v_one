@@ -25,17 +25,19 @@ warnings.simplefilter("ignore", category=FutureWarning)
 from data_manager import DataFrameManager
 from simulation_engine import SimulationEngine
 from ui.ui_components import render_sidebar
-from ui.wip_plots import render_wip_plots
+#from streamlit_app.ui.cycle import render_cycle
+from ui.wip_plots import render_wip_plots, plot_wip_over_time # 777
 from utils import calculate_initial_allocation
-from plotting import (
-    plot_fleet_duration,
-    plot_fleet_duration_filtered,
+from ui.dist_plots import (
+    plot_fleet_duration_full,
+    plot_fleet_duration_no_init,
+    plot_fleet_duration_init_only,
     plot_condition_f_duration,
-    plot_depot_duration,
-    plot_depot_duration_filtered,
-    plot_install_duration,
-    plot_micap_over_time,
-    plot_wip_over_time # 777
+    plot_depot_duration_full,
+    plot_depot_duration_no_init,
+    plot_depot_duration_init_only,
+    plot_cond_a_duration,
+    render_duration_plots
 )
 
 def main() -> None:
@@ -122,22 +124,28 @@ def main() -> None:
             st.subheader("📊 Event Processing Summary")
             event_counts = validation_results['event_counts']
             
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Events", f"{event_counts['total']:,}")
-                st.metric("Depot Completions", f"{event_counts.get('depot_complete', 0):,}")
-            with col2:
-                st.metric("Fleet Completions", f"{event_counts.get('fleet_complete', 0):,}")
-                st.metric("Part Fleet Ends", f"{event_counts.get('part_fleet_end', 0):,}")
-            with col3:
-                st.metric("New Parts Arrived", f"{event_counts.get('new_part_arrives', 0):,}")
-                st.metric("Parts Condemned", f"{event_counts.get('part_condemn', 0):,}")
-            
             tab1, tab2, tab3 = st.tabs(["Cycle", "Simulation Results", "WIP Plots"])
 
+            ############################
+            # TAB 1 
+            ############################
             with tab1:
-                st.write("Coming soon")
+                st.write("Event count statistics")
 
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Events", f"{event_counts['total']:,}")
+                    st.metric("Depot Completions", f"{event_counts.get('depot_complete', 0):,}")
+                with col2:
+                    st.metric("Fleet Completions", f"{event_counts.get('fleet_complete', 0):,}")
+                    st.metric("Part Fleet Ends", f"{event_counts.get('part_fleet_end', 0):,}")
+                with col3:
+                    st.metric("New Parts Arrived", f"{event_counts.get('new_part_arrives', 0):,}")
+                    st.metric("Parts Condemned", f"{event_counts.get('part_condemn', 0):,}")
+
+            ############################
+            # TAB 2
+            ############################
             with tab2:
                 st.subheader("📊 Simulation Statistics")
                 
@@ -167,36 +175,12 @@ def main() -> None:
                 
                 with st.expander("des_df (Aircraft Event Log) - First 10 Rows"):
                     st.dataframe(df_manager.des_df.head(10))
-                
-                # --- Plot Results ---
-                st.subheader("📈 Stage Duration Distributions")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    fig1 = plot_fleet_duration(df_manager.sim_df)
-                    st.pyplot(fig1)
-                with col2:
-                    fig2 = plot_condition_f_duration(df_manager.sim_df)
-                    st.pyplot(fig2)
-                
-                col3, col4 = st.columns(2)
-                with col3:
-                    fig3 = plot_depot_duration(df_manager.sim_df)
-                    st.pyplot(fig3)
-                with col4:
-                    fig4 = plot_install_duration(df_manager.sim_df)
-                    st.pyplot(fig4)
-                
-                # Plot MICAP events
-                st.subheader("🚨 MICAP Events")
-                fig5 = plot_micap_over_time(df_manager.des_df) # controls what df plotting.py uses
-                st.pyplot(fig5)
 
-                # Plot WIP over time 777
-                if 'wip_history' in validation_results and len(validation_results['wip_history']) > 0:
-                    st.subheader("📈 Work-in-Progress Over Time")
-                    fig6 = plot_wip_over_time(validation_results['wip_history'])
-                    st.pyplot(fig6)
+                ###########################
+                # Render all duration plots 
+                # from ui/dist_plots.py
+                #############################
+                render_duration_plots(df_manager.sim_df, allocation)
                 
                 # --- Download Results as CSV ---
                 st.markdown("---")
@@ -218,32 +202,23 @@ def main() -> None:
                     file_name="simulation_results.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-            with tab3:
-                st.subheader("📈 Fleet Duration Comparison")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("**Fleet Duration (All Data)**")
-                    fig_all = plot_fleet_duration(df_manager.sim_df)
-                    st.pyplot(fig_all)
-                
-                with col2:
-                    st.write("**Fleet Duration (Filtered - No Initial Conditions)**")
-                    fig_filtered = plot_fleet_duration_filtered(df_manager.sim_df, allocation['n_aircraft_with_parts'])
-                    st.pyplot(fig_filtered)
-                
-                st.subheader("📈 Depot Duration Comparison")
-                
-                col3, col4 = st.columns(2)
-                with col3:
-                    st.write("**Depot Duration (All Data)**")
-                    fig_depot_all = plot_depot_duration(df_manager.sim_df)
-                    st.pyplot(fig_depot_all)
-                
-                with col4:
-                    st.write("**Depot Duration (Filtered - No Initial Conditions)**")
-                    fig_depot_filtered = plot_depot_duration_filtered(df_manager.sim_df, allocation['depot_part_ids'])
-                    st.pyplot(fig_depot_filtered)
+
+            ############################
+            # TAB 3
+            ############################
+            with tab3:           
+                # Plot WIP over time 777
+                if 'wip_history' in validation_results and len(validation_results['wip_history']) > 0:
+                    st.subheader("📈 Work-in-Progress Over Time")
+                    fig6 = plot_wip_over_time(validation_results['wip_history'])
+                    st.pyplot(fig6)     
+                # Add WIP plots section
+                if 'wip_history' in validation_results and len(validation_results['wip_history']) > 0:
+                    st.subheader("📈 Individual Work-in-Progress Over Time")
+                    render_wip_plots(validation_results['wip_history'])
+            ############################
+            # END OF TAB 3 
+            ############################
     
     else:
         st.info("Adjust parameters in the sidebar and click **Run Simulation** to begin.")
