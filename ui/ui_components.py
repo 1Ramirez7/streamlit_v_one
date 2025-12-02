@@ -1,16 +1,72 @@
-"""
-
-"""
-
 import streamlit as st
 from utils import render_allocation_inputs, init_fleet_random, init_depot_random
 import numpy as np
+from scipy.special import gamma
+from scipy.optimize import fsolve
+
+
+def weibull_mean(shape, scale):
+    """Calculate the mean of a Weibull distribution."""
+    return scale * gamma(1 + 1/shape)
+
+
+def weibull_std(shape, scale):
+    """Calculate the standard deviation of a Weibull distribution."""
+    variance = scale**2 * (gamma(1 + 2/shape) - gamma(1 + 1/shape)**2)
+    return np.sqrt(variance)
+
+
+def solve_weibull_params(target_mean, target_std):
+    """
+    Solve for Weibull shape and scale parameters given mean and std.
+    
+    Parameters:
+    -----------
+    target_mean : float
+        Desired mean of the distribution
+    target_std : float
+        Desired standard deviation of the distribution
+    
+    Returns:
+    --------
+    tuple : (shape, scale)
+        The shape (k) and scale (lambda) parameters, or (None, None) if failed
+    """
+    
+    def equations(params):
+        shape, scale = params
+        if shape <= 0 or scale <= 0:
+            return [1e6, 1e6]
+        
+        mean_error = weibull_mean(shape, scale) - target_mean
+        std_error = weibull_std(shape, scale) - target_std
+        return [mean_error, std_error]
+    
+    initial_guess = [12, target_mean]
+    
+    try:
+        solution = fsolve(equations, initial_guess)
+        shape, scale = solution
+        
+        if shape > 0 and scale > 0:
+            return shape, scale
+        else:
+            return None, None
+    except:
+        return None, None
 
 
 def render_sidebar():
     """Render sidebar with simulation parameters matching main_r-code.R exactly."""
     
     st.sidebar.header("Simulation Parameters")
+    
+    # Temporary toggle for plot rendering
+    render_plots = st.sidebar.checkbox(
+        "Render Plots",
+        value=True,
+        help="Uncheck to skip plot rendering (faster for testing)"
+    )
 
     # Basic parameters
     n_total_parts = st.sidebar.number_input(
@@ -42,7 +98,7 @@ def render_sidebar():
     analysis_periods = st.sidebar.number_input(
         "Simulation Time (days)",
         min_value=1,
-        value=4000,
+        value=8000,
         step=1,
         help="Number of days for analysis period"
     )
@@ -154,22 +210,55 @@ def render_sidebar():
     sone_dist = st.sidebar.selectbox("Fleet Distribution", options=distribution_selections)
     sthree_dist = st.sidebar.selectbox("Depot Distribution", options=distribution_selections)
     
+    # --- Weibull Parameter Calculator ---
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Weibull Parameter Calculator")
+    st.sidebar.caption("Convert mean and standard deviation to Weibull shape and scale parameters")
+    
+    wei_mean = st.sidebar.number_input(
+        "Mean",
+        value=360.0,
+        min_value=1.0,
+        step=1.0,
+        key="wei_mean"
+    )
+    
+    wei_std = st.sidebar.number_input(
+        "Standard Deviation",
+        value=10.0,
+        min_value=0.01,
+        step=0.1,
+        key="wei_std"
+    )
+    
+    # Calculate Weibull parameters
+    wei_shape, wei_scale = solve_weibull_params(wei_mean, wei_std)
+    
+    if wei_shape is not None and wei_scale is not None:
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            st.metric("Shape (k)", f"{wei_shape:.3f}")
+        with col2:
+            st.metric("Scale (λ)", f"{wei_scale:.3f}")
+    else:
+        st.sidebar.warning("Could not calculate Weibull parameters")
+    
     st.sidebar.markdown("---")
     st.sidebar.subheader("Fleet: Fleet (Part on Aircraft)")
     if sone_dist == distribution_selections[0]: #Normal
         sone_mean = st.sidebar.number_input("Fleet Mean Duration", value=365.0, min_value=1.0)
-        sone_sd = st.sidebar.number_input("Fleet Std Dev", value=10.0, min_value=0.01, key="sone_sd")
+        sone_sd = st.sidebar.number_input("Fleet Std Dev", value=10.0, min_value=0.01)
     elif sone_dist == distribution_selections[1]: #Weibull
-        sone_mean = st.sidebar.number_input("Fleet Shape", value=365.0, min_value=1.0)
-        sone_sd = st.sidebar.number_input("Fleet Scale", value=10.0, min_value=0.01, key="sone_sd")
+        sone_mean = st.sidebar.number_input("Fleet Shape", value=46.099, min_value=1.0)
+        sone_sd = st.sidebar.number_input("Fleet Scale", value=369.457, min_value=0.01)
     
     st.sidebar.subheader("Depot")
     if sthree_dist == distribution_selections[0]: #Normal
-        sthree_mean = st.sidebar.number_input("Depot Mean Duration", value=365.0, min_value=1.0)
-        sthree_sd = st.sidebar.number_input("Depot Std Dev", value=10.0, min_value=0.01, key="sthree_sd")
+        sthree_mean = st.sidebar.number_input("Depot Mean Duration", value=90.0, min_value=1.0)
+        sthree_sd = st.sidebar.number_input("Depot Std Dev", value=1.2, min_value=0.01)
     elif sthree_dist == distribution_selections[1]: #Weibull
-        sthree_mean = st.sidebar.number_input("Depot Shape", value=365.0, min_value=1.0)
-        sthree_sd = st.sidebar.number_input("Depot Scale", value=10.0, min_value=0.01, key="sthree_sd")
+        sthree_mean = st.sidebar.number_input("Depot Shape", value=95.468, min_value=1.0)
+        sthree_sd = st.sidebar.number_input("Depot Scale", value=90.538, min_value=0.01)
     
     # Get randomization parameters
     fleet_rand_params = init_fleet_random()
@@ -177,6 +266,7 @@ def render_sidebar():
     
     # Combine all parameters
     return {
+        'render_plots': render_plots,
         'n_total_parts': n_total_parts,
         'n_total_aircraft': n_total_aircraft,
         'sim_time': sim_time,

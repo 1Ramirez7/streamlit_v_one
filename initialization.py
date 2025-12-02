@@ -26,8 +26,7 @@ class Initialization:
             self.engine: Used to call add_sim_event, add_des_event, duration
                 formulas, ID generators, and to access depot queue state.
             self.df: Direct reference to sim_engine.df so initialization
-                functions can modify sim_df, des_df, condition_a_df,
-                and aircraft_df during warmup.
+                functions can modify sim_df, des_df and condition_a_df during warmup.
         """
         self.engine = sim_engine
         self.df = sim_engine.df
@@ -72,21 +71,28 @@ class Initialization:
         """
         Initialize the first Fleet cycle for all aircraft–part pairs.
 
-        Generates the initial Fleet stage for every aircraft in `aircraft_df`,
-        assigning start and end times using Fleet durations. Populates both
-        `sim_df` (part events) and `des_df` (aircraft events) to establish baseline
-        records before the main simulation loop begins.
+        Generates the initial Fleet stage for every aircraft-part pair using
+        f_start_ac_part_ids from allocation. Populates both PartManager (parts)
+        and AircraftManager (aircraft) to establish baseline records before
+        the main simulation loop begins.
 
         Notes
         -----
-        Serves as the simulation warm-up phase, ensuring every aircraft–part pair
-        starts with one complete Fleet event. Subsequent stages (Condition F, Depot)
-        depend on these initial values.
+        - Uses f_start_ac_part_ids where ac_id = part_id (same value from list)
+        - Generates sim_id and des_id using respective managers
+        - No longer depends on aircraft_df
         """
-        # Loop through each aircraft in aircraft_df
-        for row_idx in range(len(self.df.aircraft_df)):
-            # Extract aircraft row data
-            ac_row = self.df.aircraft_df.iloc[row_idx]
+        # Get list of aircraft-part IDs from allocation
+        f_start_ac_part_ids = self.df.allocation['f_start_ac_part_ids']
+        
+        for entity_id in f_start_ac_part_ids:
+            # entity_id is both ac_id and part_id for fleet start pairs
+            ac_id = entity_id
+            part_id = entity_id
+            
+            # Generate IDs from managers FIRST
+            sim_id = self.engine.part_manager.get_next_sim_id()
+            des_id = self.engine.ac_manager.get_next_des_id()
             
             # Calculate Fleet duration & optionally randomize duration per user settings
             d1_base = self.engine.calculate_fleet_duration()
@@ -95,8 +101,7 @@ class Initialization:
             else:
                 random_multiplier = 1.0
             d1 = d1_base * random_multiplier
-            eventtypepart = "IC_IZFS"
-            eventtypeac = "IC_IZFS"
+            eventtype = "IC_IZFS"
             
             # Timing calculations
             s1_start = self.engine.calculate_fleet_duration()  # So not all aircraft start at sim day 1
@@ -106,56 +111,31 @@ class Initialization:
             # Randomize cycle for steady-state initialization
             initial_cycle = np.random.randint(1, self.engine.condemn_cycle)
             
-            # Add to sim_df using helper function
-            # Note: ac_row['sim_id'] and ac_row['des_id'] are the IDs from aircraft_df
-            self.engine.add_sim_event(
-                sim_id=ac_row['sim_id'],
-                part_id=ac_row['part_id'],
-                desone_id=ac_row['des_id'],  # Foreign key to des_df
-                acone_id=ac_row['ac_id'],
-                micap=eventtypepart,
-                fleet_duration=d1,
-                condition_f_duration=np.nan,
-                depot_duration=np.nan,
-                condition_a_duration=np.nan,
-                install_duration=np.nan,
+            # Add to PartManager using add_part
+            self.engine.part_manager.add_part(
+                sim_id=sim_id,
+                part_id=part_id,
+                cycle=initial_cycle,
+                micap=eventtype,
                 fleet_start=s1_start,
                 fleet_end=s1_end,
-                condition_f_start=np.nan,
-                condition_f_end=np.nan,
-                depot_start=np.nan,
-                depot_end=np.nan,
-                destwo_id=None,
-                actwo_id=None,
-                condition_a_start=np.nan,
-                condition_a_end=np.nan,
-                install_start=np.nan,
-                install_end=np.nan,
-                cycle=initial_cycle, # randomizing cycle
+                fleet_duration=d1,
+                desone_id=des_id,  # Foreign key to ac_manager
+                acone_id=ac_id,
                 condemn="no"
             )
-            # Note: add_sim_event increments current_sim_row automatically
             
-            # Add to des_df using helper function
-            self.engine.add_des_event(
-                des_id=ac_row['des_id'],
-                ac_id=ac_row['ac_id'],
-                micap=eventtypeac,
-                simone_id=ac_row['sim_id'],  # Foreign key to sim_df
-                partone_id=ac_row['part_id'],
+            # Add to AircraftManager using add_ac
+            self.engine.ac_manager.add_ac(
+                des_id=des_id,
+                ac_id=ac_id,
+                micap=eventtype,
                 fleet_duration=d1,
                 fleet_start=s1_start,
                 fleet_end=s1_end,
-                micap_duration=np.nan,
-                micap_start=np.nan,
-                micap_end=np.nan,
-                simtwo_id=None,
-                parttwo_id=None,
-                install_duration=np.nan,
-                install_start=np.nan,
-                install_end=np.nan
+                simone_id=sim_id,  # Foreign key to part_manager
+                partone_id=part_id
             )
-            # Note: add_des_event increments current_des_row automatically
     
 
     # ------------------------------------------- 2 --------------------------------------------------
@@ -181,33 +161,17 @@ class Initialization:
             eventtype = "IC_IjD"
 
             # spacer
-            self.engine.add_sim_event(
-                sim_id=part_id,
+            self.engine.part_manager.add_initial_part(
                 part_id=part_id,
-                desone_id=None,
-                acone_id=None,
+                cycle=cycle, # randomizing cycle
                 micap=eventtype,
-                fleet_duration=np.nan,
-                condition_f_duration=np.nan,
-                depot_duration=d3,
-                condition_a_duration=np.nan,
-                install_duration=np.nan,
-                fleet_start=np.nan,
-                fleet_end=np.nan,
-                condition_f_start=np.nan,
-                condition_f_end=np.nan,
                 depot_start=s3_start,
                 depot_end=s3_end,
-                destwo_id=None,
-                actwo_id=None,
-                condition_a_start=np.nan,
-                condition_a_end=np.nan,
-                install_start=np.nan,
-                install_end=np.nan,
-                cycle=cycle, # randomizing cycle
-                condemn="no"
+                depot_duration=d3
             )
             heapq.heappush(self.engine.active_depot, s3_end)
+
+            # parts here progress in event calendar
 
 
     # ------------------------------------------- 3 --------------------------------------------------
@@ -230,31 +194,11 @@ class Initialization:
             eventtype = "IC_IjCF"
 
             # Add Condition F event
-            self.engine.add_sim_event(
-                sim_id=part_id,
+            self.engine.part_manager.add_initial_part(
                 part_id=part_id,
-                desone_id=None,
-                acone_id=None,
-                micap=eventtype,
-                fleet_duration=np.nan,
-                condition_f_duration=np.nan,
-                depot_duration=np.nan,
-                condition_a_duration=np.nan,
-                install_duration=np.nan,
-                fleet_start=np.nan,
-                fleet_end=np.nan,
-                condition_f_start=s2_start,
-                condition_f_end=np.nan,
-                depot_start=np.nan,
-                depot_end=np.nan,
-                destwo_id=None,
-                actwo_id=None,
-                condition_a_start=np.nan,
-                condition_a_end=np.nan,
-                install_start=np.nan,
-                install_end=np.nan,
                 cycle=cycle,  # randomizing cycle
-                condemn="no"
+                micap=eventtype,
+                condition_f_start=s2_start
             )
 
 
@@ -267,7 +211,7 @@ class Initialization:
         Uses cond_a_part_ids for both sim_id and part_id,
         and assigns cycles from cond_a_cycles.
         
-        Adds parts to both sim_df and condition_a_df.
+        Adds parts to part_manager and cond_a_state.
         """
         cond_a_part_ids = self.df.allocation['cond_a_part_ids']
         #cond_f_part_ids = list(range(23, 11)) # testing mismatch code
@@ -278,212 +222,147 @@ class Initialization:
             ca_start = 0
             eventtype = "IC_IjCA"
 
-            # Add Condition A event to sim_df
-            self.engine.add_sim_event(
-                sim_id=part_id,
+            # Add Condition A event to part_manager
+            result = self.engine.part_manager.add_initial_part(
                 part_id=part_id,
-                desone_id=None,
-                acone_id=None,
-                micap=eventtype,
-                fleet_duration=np.nan,
-                condition_f_duration=np.nan,
-                depot_duration=np.nan,
-                condition_a_duration=np.nan,
-                install_duration=np.nan,
-                fleet_start=np.nan,
-                fleet_end=np.nan,
-                condition_f_start=np.nan,
-                condition_f_end=np.nan,
-                depot_start=np.nan,
-                depot_end=np.nan,
-                destwo_id=None,
-                actwo_id=None,
-                condition_a_start=ca_start,
-                condition_a_end=np.nan,
-                install_start=np.nan,
-                install_end=np.nan,
                 cycle=cycle,  # randomizing cycle
-                condemn="no"
+                micap=eventtype,
+                condition_a_start=ca_start
             )
             
-            # Also add to condition_a_df for inventory tracking
-            new_cond_a_row = pd.DataFrame([{
-                'sim_id': part_id,
-                'part_id': part_id,
-                'desone_id': None,
-                'acone_id': None,
-                'micap': eventtype,
-                'fleet_duration': np.nan,
-                'condition_f_duration': np.nan,
-                'depot_duration': np.nan,
-                'condition_a_duration': np.nan,
-                'install_duration': np.nan,
-                'fleet_start': np.nan,
-                'fleet_end': np.nan,
-                'condition_f_start': np.nan,
-                'condition_f_end': np.nan,
-                'depot_start': np.nan,
-                'depot_end': np.nan,
-                'destwo_id': None,
-                'actwo_id': None,
-                'condition_a_start': ca_start,
-                'condition_a_end': np.nan,
-                'install_start': np.nan,
-                'install_end': np.nan,
-                'cycle': cycle,
-                'condemn': "no"
-            }])
+            sim_id = result['sim_id']
             
-            self.df.condition_a_df = pd.concat(
-                [self.df.condition_a_df, new_cond_a_row], 
-                ignore_index=True
+            # Add to Condition A inventory using cond_a_state
+            self.engine.cond_a_state.add_part(
+                sim_id=sim_id,
+                part_id=part_id,
+                condition_a_start=ca_start
             )
 
 
     # ------------------------------------------- 5 --------------------------------------------------
     def eventm_ic_izca_cr(self):
         """
-        Process parts from condition_a_df during initial conditions phase.
+        Process parts from cond_a_state during initial conditions phase.
         This function should be called AFTER event_ic_izfs and 
         BEFORE _schedule_initial_events in the run() method.
         
-        For each part in condition_a_df:
+        While parts exist in cond_a_state:
         1. Check if MICAP exists
-        2. If no MICAP: do nothing (part stays in condition_a_df, will be handled by normal events)
+        2. If no MICAP: stop (remaining parts stay in cond_a_state)
         3. If MICAP exists: Install part immediately and advance to next cycle
 
         - MICAP aircraft that get resolved will be advanced to fleet_end
         """
-        # Get list of part_ids BEFORE starting the loop
-        part_ids = self.df.condition_a_df['part_id'].tolist()
-
         eventtype="IC_MICAP"
         
-        # Now iterate over part_ids (not the dataframe)
-        for part_id in part_ids:
-            # Get the part's info from condition_a_df
-            part_row = self.df.condition_a_df[self.df.condition_a_df['part_id'] == part_id].iloc[0]
-            condition_a_start = part_row['condition_a_start']
-            cycle = part_row['cycle']
+        # Keep processing while both MICAP aircraft and Condition A parts exist
+        while self.engine.cond_a_state.count_active() > 0:
+            # Check if MICAP exists FIRST
+            if self.engine.micap_state.count_active() == 0:
+                break  # No MICAP aircraft, stop processing
             
-            # applying micap class 787 new
-            micap_pa_rm = self.engine.micap_state.pop_and_rm_first(condition_a_start, event_type=eventtype)
-
-            if micap_pa_rm is None: # PATH 1: No MICAP - End processing for this and all remaining parts
+            # Pop first available part from cond_a_state
+            first_part = self.engine.cond_a_state.pop_first_available(current_time=0)
+            
+            if first_part is None:
                 break
-            else: # --- PATH 2: MICAP exists ---
-                # can just call self.micap_state.remove_aircraft? micap77
-                first_micap = micap_pa_rm
-                
-                # Calculate install timing
-                d4_install = self.engine.calculate_install_duration()
-                s4_install_start = condition_a_start
-                s4_install_end = s4_install_start + d4_install
-                
-                # Calculate condition_a_duration (should be 0 or condition_a_start set by init cond)
-                condition_a_end = s4_install_start
-                condition_a_duration = condition_a_end - condition_a_start
-                
-                # For initial conditions, all MICAP aircraft don't have des_id
-                des_id_for_sim = self.engine.get_next_des_id()
-                
-                # --- Find and EDIT existing row in sim_df for this part_id ---
-                filled_sim_df = self.df.sim_df.iloc[:self.df.current_sim_row]
-                part_row_idx = filled_sim_df[filled_sim_df['part_id'] == part_id].index[0]
-                
-                # Update the existing sim_df row with install information
-                self.df.sim_df.at[part_row_idx, 'condition_a_duration'] = condition_a_duration
-                self.df.sim_df.at[part_row_idx, 'install_duration'] = d4_install
-                self.df.sim_df.at[part_row_idx, 'destwo_id'] = des_id_for_sim
-                self.df.sim_df.at[part_row_idx, 'actwo_id'] = first_micap['ac_id']
-                self.df.sim_df.at[part_row_idx, 'condition_a_end'] = condition_a_end
-                self.df.sim_df.at[part_row_idx, 'install_start'] = s4_install_start
-                self.df.sim_df.at[part_row_idx, 'install_end'] = s4_install_end
-                
-                # Generate IDs for cycle restart (cycle + 1)
-                new_sim_id_restart = self.engine.get_next_sim_id()
-                new_des_id_restart = self.engine.get_next_des_id() + 1  # Account for des_id used for MICAP
-                # Fleet Calculation
-                d1 = self.engine.calculate_fleet_duration()
-                s1_start = s4_install_end
-                s1_end = s1_start + d1
+            
+            sim_id = first_part['sim_id']
+            part_id = first_part['part_id']
+            condition_a_start = first_part['condition_a_start']
+            
+            # Get cycle from part_manager
+            part_record = self.engine.part_manager.get_part(sim_id)
+            cycle = part_record['cycle']
+            
+            # Pop MICAP aircraft (we already confirmed one exists)
+            micap_pa_rm = self.engine.micap_state.pop_and_rm_first(condition_a_start, event_type=eventtype)
+            
+            # --- PATH 2: MICAP exists ---
+            first_micap = micap_pa_rm
+            
+            # Calculate install timing
+            d4_install = self.engine.calculate_install_duration()
+            s4_install_start = condition_a_start
+            s4_install_end = s4_install_start + d4_install
+            
+            # Calculate condition_a_duration (should be 0 or condition_a_start set by init cond)
+            condition_a_end = s4_install_start
+            condition_a_duration = condition_a_end - condition_a_start
+            
+            # Generate des_id for MICAP resolution using ac_manager
+            des_id_for_sim = self.engine.ac_manager.get_next_des_id()
+            
+            # Update the existing active part with install information
+            self.engine.part_manager.update_fields(sim_id, {
+                'condition_a_end': condition_a_end,
+                'condition_a_duration': condition_a_duration,
+                'install_start': s4_install_start,
+                'install_end': s4_install_end,
+                'install_duration': d4_install,
+                'destwo_id': des_id_for_sim,
+                'actwo_id': first_micap['ac_id']
+            })
+            
+            # Complete the cycle for this part (logs it and removes from active)
+            self.engine.part_manager.complete_pca_cycle(sim_id, part_id)
+            
+            # Handle aircraft: Aircraft started in MICAP, ADD NEW row
+            micap_duration = condition_a_start - first_micap['micap_start']
+            micap_end = condition_a_start
+            # Add aircraft event for MICAP resolution using ac_manager
+            self.engine.ac_manager.add_ac(
+                des_id=des_id_for_sim,
+                ac_id=first_micap['ac_id'],
+                micap=first_micap['micap'],
+                micap_duration=micap_duration,
+                micap_start=first_micap['micap_start'],
+                micap_end=micap_end,
+                install_duration=d4_install,
+                install_start=s4_install_start,
+                install_end=s4_install_end,
+                simtwo_id=sim_id,
+                parttwo_id=part_id
+            )
+            # Complete the cycle for this Aircraft (logs it and removes from active)
+            self.engine.ac_manager.complete_ac_cycle(des_id_for_sim)
 
-                # --- Add row to sim_df for cycle + 1 (restart) ---
-                self.engine.add_sim_event(
-                    sim_id=new_sim_id_restart,
-                    part_id=part_id,
-                    desone_id=new_des_id_restart,
-                    acone_id=first_micap['ac_id'],
-                    micap='IC_CRCA',
-                    fleet_duration=d1,
-                    condition_f_duration=np.nan,
-                    depot_duration=np.nan,
-                    condition_a_duration=np.nan,
-                    install_duration=np.nan,
-                    fleet_start=s4_install_end,
-                    fleet_end=s1_end,
-                    condition_f_start=np.nan,
-                    condition_f_end=np.nan,
-                    depot_start=np.nan,
-                    depot_end=np.nan,
-                    destwo_id=np.nan,
-                    actwo_id=np.nan,
-                    condition_a_start=np.nan,
-                    condition_a_end=np.nan,
-                    install_start=np.nan,
-                    install_end=np.nan,
-                    cycle=cycle + 1,  # Increment cycle
-                    condemn='no'
-                )
-                
-                # Handle des_df: Aircraft started in MICAP, ADD NEW row
-                micap_duration = condition_a_start - first_micap['micap_start']
-                micap_end = condition_a_start
-                eventtype="IC_CRCA_A"
-                
-                self.engine.add_des_event(
-                    des_id=des_id_for_sim,
-                    ac_id=first_micap['ac_id'],
-                    micap=first_micap['micap'],
-                    simone_id=None,
-                    partone_id=None,
-                    fleet_duration=np.nan,
-                    fleet_start=np.nan,
-                    fleet_end=np.nan,
-                    micap_duration=micap_duration,
-                    micap_start=first_micap['micap_start'],
-                    micap_end=micap_end,
-                    simtwo_id=part_row_idx,  # Use the existing sim_df row index as sim_id
-                    parttwo_id=part_id,
-                    install_duration=d4_install,
-                    install_start=s4_install_start,
-                    install_end=s4_install_end
-                )
-                
-                # Add ANOTHER row to des_df for cycle restart
-                self.engine.add_des_event(
-                    des_id=new_des_id_restart,
-                    ac_id=first_micap['ac_id'],
-                    micap=eventtype,
-                    simone_id=new_sim_id_restart,
-                    partone_id=part_id,
-                    fleet_duration=d1,
-                    fleet_start=s4_install_end,
-                    fleet_end=s1_end,
-                    micap_duration=np.nan,
-                    micap_start=np.nan,
-                    micap_end=np.nan,
-                    simtwo_id=np.nan,
-                    parttwo_id=np.nan,
-                    install_duration=np.nan,
-                    install_start=np.nan,
-                    install_end=np.nan
-                )
-                
-                # Remove part from condition_a_df
-                self.df.condition_a_df = self.df.condition_a_df[
-                    self.df.condition_a_df['part_id'] != part_id
-                ].reset_index(drop=True)
+            # Generate IDs for cycle restart (cycle + 1)
+            new_sim_id_restart = self.engine.part_manager.get_next_sim_id()
+            new_des_id_restart = self.engine.ac_manager.get_next_des_id()
+            
+            # Fleet Calculation
+            d1 = self.engine.calculate_fleet_duration()
+            s1_start = s4_install_end
+            s1_end = s1_start + d1
+
+            # --- Add row to PartManager for cycle + 1 (restart) ---
+            self.engine.part_manager.add_part(
+                sim_id=new_sim_id_restart,
+                part_id=part_id,
+                cycle=cycle + 1,
+                micap='IC_CRCA',
+                fleet_start=s4_install_end,
+                fleet_end=s1_end,
+                fleet_duration=d1,
+                desone_id=new_des_id_restart,
+                acone_id=first_micap['ac_id'],
+                condemn='no'
+            )
+            
+            # Add aircraft event for cycle restart using ac_manager
+            eventtype_restart = "IC_CRCA_A"
+            self.engine.ac_manager.add_ac(
+                des_id=new_des_id_restart,
+                ac_id=first_micap['ac_id'],
+                micap=eventtype_restart,
+                fleet_duration=d1,
+                fleet_start=s4_install_end,
+                fleet_end=s1_end,
+                simone_id=new_sim_id_restart,
+                partone_id=part_id,
+            )
 
 
     # ------------------------------------------- 6 --------------------------------------------------
@@ -498,21 +377,33 @@ class Initialization:
         INITIALIZE parts FLEET_END to CF_START
         - from fleet start: IC_IZFS 
         - from CA_start > resolve micap > fleet end: IC_CRCA
+
+        Since adding the part_manager class, need a better way to keep track of fe-cf parts
+        if we do decide to use this as a sole function, since this is using the temp micap event tracking
         """
-        # push IC_IZFS & IC_CRCA from fleet_end to CF_Start
-        filled_sim_df = self.df.sim_df.iloc[:self.df.current_sim_row]
-        valid_rows = filled_sim_df[(filled_sim_df['micap'] == 'IC_IZFS') | 
-            (filled_sim_df['micap'] == 'IC_CRCA')]
-        valid_rows = valid_rows.sort_values('fleet_end')
-        eventtype="IC_FE_CF"
+        # Get all active parts from PartManager
+        active_parts = self.engine.part_manager.get_all_active_parts()
         
-        if not valid_rows.empty: # ONLY run if valid_rows has data
-            for idx in valid_rows.index:# Iterate over the INDEX
-                s1_end = self.df.sim_df.at[idx, 'fleet_end']
-                self.df.sim_df.at[idx, 'micap'] = eventtype # update event
-                self.df.sim_df.at[idx, 'condition_f_start'] = s1_end
-
-
+        # push IC_IZFS & IC_CRCA from fleet_end to CF_Start
+        valid_parts = []
+        for sim_id, part in active_parts.items():
+            if part['micap'] in ['IC_IZFS', 'IC_CRCA']:
+                valid_parts.append(part)
+        
+        # Sort by fleet_end. Maintain chronological order
+        valid_parts.sort(key=lambda x: x['fleet_end'] if pd.notna(x['fleet_end']) else float('inf'))
+        
+        eventtype = "IC_FE_CF"
+        
+        for part in valid_parts:
+            sim_id = part['sim_id']
+            s1_end = part['fleet_end']
+            
+            # Update fields using PartManager
+            self.engine.part_manager.update_fields(sim_id, {
+                'micap': eventtype,
+                'condition_f_start': s1_end
+            })
 
 # spacer
 

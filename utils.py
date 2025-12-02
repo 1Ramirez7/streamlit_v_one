@@ -61,6 +61,7 @@ def calculate_initial_allocation( # need to add to main.py
     
     # NEED to Get RID of using this to also allocate initial sim_id and des_id
     # until then the order these events are added need to happen in this order. IC_FS is 1st
+    f_start_ac_part_ids = list(range(0, n_aircraft_with_parts))
     depot_part_ids = list(range(n_aircraft_with_parts, n_aircraft_with_parts + parts_in_depot)) # 2nd
     cond_f_part_ids = list(range(n_aircraft_with_parts + parts_in_depot, n_aircraft_with_parts
                                   + parts_in_depot + parts_in_cond_f)) # 3rd
@@ -100,6 +101,7 @@ def calculate_initial_allocation( # need to add to main.py
         'parts_in_cond_f': parts_in_cond_f,
         'n_aircraft_with_parts': n_aircraft_with_parts,
         'n_aircraft_w_out_parts': n_aircraft_w_out_parts,
+        'f_start_ac_part_ids': f_start_ac_part_ids,
         'cond_a_part_ids': cond_a_part_ids,
         'cond_f_part_ids': cond_f_part_ids,
         'depot_part_ids': depot_part_ids,
