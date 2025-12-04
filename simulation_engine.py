@@ -125,7 +125,7 @@ class SimulationEngine:
         """
         if self.sthree_dist == "Normal":
             return max(0, np.random.normal(self.sthree_mean, self.sthree_sd))
-        elif self.sone_dist == "Weibull":
+        elif self.sthree_dist == "Weibull":
             return max(0, np.random.weibull(self.sthree_mean) * self.sthree_sd)
     
     def calculate_install_duration(self):
