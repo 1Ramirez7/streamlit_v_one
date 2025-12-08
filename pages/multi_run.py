@@ -292,6 +292,13 @@ def main() -> None:
     st.title("🔄 Multi Run - Parameter Sweep")
     st.markdown("Vary **depot_capacity** and **n_total_parts**")
     
+    # Memory warning for Streamlit Cloud
+    st.warning(
+        "⚠️ **Memory Limit Warning:** Streamlit Cloud has a 2.8GB memory limit. "
+        "Large parameter sweeps may exceed this and crash the app. "
+        "This deployment demonstrates capability — for production use, deploy locally or use a cloud service with more resources."
+    )
+    
     # ================================================================
     # SIDEBAR: FIXED PARAMETERS
     # ================================================================
