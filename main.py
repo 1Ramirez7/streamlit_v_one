@@ -44,6 +44,8 @@ with col2:
     - Find optimal configurations
     - Comparative charts and analysis
     - Export results to Excel/ZIP
+    
+    ⚠️ *Note: Streamlit Cloud has a 2.8GB memory limit. Large parameter sweeps may crash the app. This deployment demonstrates capability — deploy locally or use a cloud service for production.*
     """)
     st.page_link("pages/multi_run.py", label="Go to Multi Run →", icon="🔄")
 

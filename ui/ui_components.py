@@ -6,7 +6,7 @@ All parameters match main_r-code.R exactly.
 """
 
 import streamlit as st
-from utils import render_allocation_inputs, init_fleet_random, init_depot_random, solve_weibull_params
+from utils import render_allocation_inputs, init_fleet_random, init_depot_random, solve_weibull_params, weibull_mean
 import numpy as np
 
 def render_sidebar():
@@ -183,9 +183,11 @@ def render_sidebar():
     if sone_dist == distribution_selections[0]: #Normal
         sone_mean = st.sidebar.number_input("Fleet Mean Duration", value=700.0, min_value=1.0)
         sone_sd = st.sidebar.number_input("Fleet Std Dev", value=140.0, min_value=0.01)
+        fleet_mean_for_buffer = sone_mean  # Use mean directly for Normal
     elif sone_dist == distribution_selections[1]: #Weibull
         sone_mean = st.sidebar.number_input("Fleet Shape", value=46.099, min_value=1.0)
         sone_sd = st.sidebar.number_input("Fleet Scale", value=36.946, min_value=0.01)
+        fleet_mean_for_buffer = weibull_mean(sone_mean, sone_sd)  # Calculate mean from shape/scale
 
     st.sidebar.subheader("Depot")
     if sthree_dist == distribution_selections[0]: #Normal
@@ -210,13 +212,14 @@ def render_sidebar():
         min_value=1,
         value=1,
         step=1,
-        help="Multiplier for warmup and closing periods (e.g., 2 means warmup = sone_mean * 2)",
+        help="Multiplier for warmup and closing periods (e.g., 2 means warmup = fleet_mean * 2)",
         disabled=not double_periods
     )
 
     # Set warmup_periods and closing_periods based on user-controlled multiplier
-    warmup_periods = sone_mean * buffer_multiplier
-    closing_periods = sone_mean * buffer_multiplier
+    # Use fleet_mean_for_buffer which is calculated from Weibull shape/scale if Weibull is selected
+    warmup_periods = fleet_mean_for_buffer * buffer_multiplier
+    closing_periods = fleet_mean_for_buffer * buffer_multiplier
 
     if double_periods:
         sim_time = warmup_periods + analysis_periods + closing_periods
