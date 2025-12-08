@@ -334,8 +334,8 @@ def main() -> None:
     distribution_selections = ["Normal", "Weibull"]
     st.sidebar.markdown("---")
     st.sidebar.subheader("Distribution Selection")
-    sone_dist = st.sidebar.selectbox("Fleet Distribution", options=distribution_selections)
-    sthree_dist = st.sidebar.selectbox("Depot Distribution", options=distribution_selections)
+    sone_dist = st.sidebar.selectbox("Fleet Distribution", options=distribution_selections, index=0)
+    sthree_dist = st.sidebar.selectbox("Depot Distribution", options=distribution_selections, index=1)
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("Fleet: Fleet (Part on Aircraft)")
