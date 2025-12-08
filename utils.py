@@ -1,36 +1,30 @@
 import streamlit as st
 import numpy as np
+from scipy.special import gamma
+from scipy.optimize import fsolve
 
 
-def calculate_initial_allocation( # need to add to main.py 
-    n_total_parts: int,
-    n_total_aircraft: int,
-    mission_capable_rate: float,
-    depot_capacity: int,
-    condemn_cycle: int,
-    parts_in_depot: int,  # NEW: from UI
-    parts_in_cond_f: int,  # NEW: from UI
-    parts_in_cond_a: int  # NEW: from UI
-) -> dict:
+
+def calculate_initial_allocation(params) -> dict:
     """
     Calculate Initial Conditions.
     
     Parameters
     ----------
-    n_total_parts : int - Total parts in the system
-    n_total_aircraft : int - Total aircraft in the fleet
-    mission_capable_rate : float
-        Percentage (0.0 to 1.0) of aircraft that start with a part installed
-    depot_capacity : int - Maximum parts that can be in depot
-    condemn_cycle : int
-        Maximum cycle number for randomizing initial cycles
-    parts_in_depot : int - Number of parts starting in depot (from UI)
-    parts_in_cond_f : int - Number of parts starting in Condition F (from UI)
-    parts_in_cond_a : int - Number of parts starting in Condition A (from UI)
+    params :
+        - n_total_parts: Total parts in the system
+        - n_total_aircraft: Total aircraft in the fleet
+        - mission_capable_rate: Percentage (0.0 to 1.0) of aircraft with parts
+        - depot_capacity: Maximum parts that can be in depot
+        - condemn_cycle: Maximum cycle number for randomizing initial cycles
+        - parts_in_depot: Number of parts starting in depot (from UI)
+        - parts_in_cond_f: Number of parts starting in Condition F (from UI)
+        - parts_in_cond_a: Number of parts starting in Condition A (from UI)
         
     Returns
     -------
     dict with keys:
+
         'parts_in_depot': Number of parts starting in depot
         'parts_in_cond_a': Number of parts starting in Condition A
         'parts_in_cond_f': Number of parts starting in Condition F
@@ -42,6 +36,15 @@ def calculate_initial_allocation( # need to add to main.py
         'depot_part_ids': List of part_ids for depot
         'micap_ac_ids': List of aircraft IDs starting in MICAP
     """
+    # Extract params
+    n_total_parts = params['n_total_parts']
+    n_total_aircraft = params['n_total_aircraft']
+    mission_capable_rate = params['mission_capable_rate']
+    depot_capacity = params['depot_capacity']
+    condemn_cycle = params['condemn_cycle']
+    parts_in_depot = params['parts_in_depot']
+    parts_in_cond_f = params['parts_in_cond_f']
+    parts_in_cond_a = params['parts_in_cond_a']
     
     # Validate mission_capable_rate
     if not (0.0 <= mission_capable_rate <= 1.0):
@@ -70,7 +73,6 @@ def calculate_initial_allocation( # need to add to main.py
     micap_ac_ids = list(range(n_aircraft_with_parts, n_aircraft_with_parts + n_aircraft_w_out_parts))
 
     # Generate randomized cycles for Condition A parts
-    # added in DataFrameManager._create_condition_a_df
     # (1, condemn_cycle + 1) = 1 ≤ cycle ≤ condemn_cycle = randomly chosen between 1 and 20
     # remove the 1 so randomized does not start part in condemn. 
     # it will be better to have +1 so it starts parts in condemn
@@ -200,8 +202,7 @@ def init_fleet_random():
     
     Returns dict with: use_fleet_rand, fleet_rand_min, fleet_rand_max
     """
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Fleet Duration Randomization")
+    st.sidebar.markdown("**Fleet Duration Randomization**")
     
     use_fleet_rand = st.sidebar.checkbox(
         "Randomize Fleet Durations",
@@ -244,8 +245,6 @@ def init_fleet_random():
             fleet_rand_min = 0.01
             fleet_rand_max = 1.0
         
-        st.sidebar.info(f"Multiplier range: {fleet_rand_min:.2f} - {fleet_rand_max:.2f}")
-        
     else:
         fleet_rand_min = 1.0
         fleet_rand_max = 1.0
@@ -265,8 +264,7 @@ def init_depot_random():
     
     Returns dict with: use_depot_rand, depot_rand_min, depot_rand_max
     """
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Depot Duration Randomization")
+    st.sidebar.markdown("**Depot Duration Randomization**")
     
     use_depot_rand = st.sidebar.checkbox(
         "Randomize Depot Durations",
@@ -309,8 +307,6 @@ def init_depot_random():
             depot_rand_min = 0.01
             depot_rand_max = 1.0
         
-        st.sidebar.info(f"Depot multiplier range: {depot_rand_min:.2f} - {depot_rand_max:.2f}")
-        
     else:
         depot_rand_min = 1.0
         depot_rand_max = 1.0
@@ -320,3 +316,56 @@ def init_depot_random():
         'depot_rand_min': depot_rand_min,
         'depot_rand_max': depot_rand_max
     }
+
+
+
+
+def weibull_mean(shape, scale):
+    """Calculate the mean of a Weibull distribution."""
+    return scale * gamma(1 + 1/shape)
+
+
+def weibull_std(shape, scale):
+    """Calculate the standard deviation of a Weibull distribution."""
+    variance = scale**2 * (gamma(1 + 2/shape) - gamma(1 + 1/shape)**2)
+    return np.sqrt(variance)
+
+
+def solve_weibull_params(target_mean, target_std):
+    """
+    Solve for Weibull shape and scale parameters given mean and std.
+    
+    Parameters:
+    -----------
+    target_mean : float
+        Desired mean of the distribution
+    target_std : float
+        Desired standard deviation of the distribution
+    
+    Returns:
+    --------
+    tuple : (shape, scale)
+        The shape (k) and scale (lambda) parameters, or (None, None) if failed
+    """
+    
+    def equations(params):
+        shape, scale = params
+        if shape <= 0 or scale <= 0:
+            return [1e6, 1e6]
+        
+        mean_error = weibull_mean(shape, scale) - target_mean
+        std_error = weibull_std(shape, scale) - target_std
+        return [mean_error, std_error]
+    
+    initial_guess = [12, target_mean]
+    
+    try:
+        solution = fsolve(equations, initial_guess)
+        shape, scale = solution
+        
+        if shape > 0 and scale > 0:
+            return shape, scale
+        else:
+            return None, None
+    except:
+        return None, None

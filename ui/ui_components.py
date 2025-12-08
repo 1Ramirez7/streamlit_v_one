@@ -1,67 +1,20 @@
+"""
+UI Components for DES Simulation
+
+Provides Streamlit sidebar widgets for simulation parameter input.
+All parameters match main_r-code.R exactly.
+"""
+
 import streamlit as st
-from utils import render_allocation_inputs, init_fleet_random, init_depot_random
+from utils import render_allocation_inputs, init_fleet_random, init_depot_random, solve_weibull_params
 import numpy as np
-from scipy.special import gamma
-from scipy.optimize import fsolve
-
-
-def weibull_mean(shape, scale):
-    """Calculate the mean of a Weibull distribution."""
-    return scale * gamma(1 + 1/shape)
-
-
-def weibull_std(shape, scale):
-    """Calculate the standard deviation of a Weibull distribution."""
-    variance = scale**2 * (gamma(1 + 2/shape) - gamma(1 + 1/shape)**2)
-    return np.sqrt(variance)
-
-
-def solve_weibull_params(target_mean, target_std):
-    """
-    Solve for Weibull shape and scale parameters given mean and std.
-    
-    Parameters:
-    -----------
-    target_mean : float
-        Desired mean of the distribution
-    target_std : float
-        Desired standard deviation of the distribution
-    
-    Returns:
-    --------
-    tuple : (shape, scale)
-        The shape (k) and scale (lambda) parameters, or (None, None) if failed
-    """
-    
-    def equations(params):
-        shape, scale = params
-        if shape <= 0 or scale <= 0:
-            return [1e6, 1e6]
-        
-        mean_error = weibull_mean(shape, scale) - target_mean
-        std_error = weibull_std(shape, scale) - target_std
-        return [mean_error, std_error]
-    
-    initial_guess = [12, target_mean]
-    
-    try:
-        solution = fsolve(equations, initial_guess)
-        shape, scale = solution
-        
-        if shape > 0 and scale > 0:
-            return shape, scale
-        else:
-            return None, None
-    except:
-        return None, None
-
 
 def render_sidebar():
     """Render sidebar with simulation parameters matching main_r-code.R exactly."""
     
     st.sidebar.header("Simulation Parameters")
     
-    # Temporary toggle for plot rendering
+    # Toggle for plot rendering
     render_plots = st.sidebar.checkbox(
         "Render Plots",
         value=True,
@@ -72,7 +25,7 @@ def render_sidebar():
     n_total_parts = st.sidebar.number_input(
         "Total Parts",
         min_value=1,
-        value=24,  # 1100
+        value=891,  # 1100
         step=1,
         help="Total number of parts in the system"
     )
@@ -80,47 +33,21 @@ def render_sidebar():
     n_total_aircraft = st.sidebar.number_input(
         "Total Aircraft",
         min_value=1,
-        value=20,  # 900
+        value=826,  # 900
         step=1,
         help="Total number of aircraft in the fleet"
     )
     
     # Simulation time broken into 3 components
     st.sidebar.markdown("**Simulation Timeline**")
-    warmup_periods = st.sidebar.number_input(
-        "Warmup Periods (days)",
-        min_value=0,
-        value=100,
-        step=1,
-        help="Number of days for warmup calculations. The initial calculations distort the actual representation of a DES due to fleet start time is the same for the first set of parts and aircraft in fleet is all the same. Also all the parts starting in Condition A also start at the same time."
-    )
+    # warmup_periods will be set after sone_mean is defined
     
     analysis_periods = st.sidebar.number_input(
         "Simulation Time (days)",
         min_value=1,
-        value=8000,
+        value=7800,
         step=1,
         help="Number of days for analysis period"
-    )
-    
-    closing_periods = st.sidebar.number_input(
-        "Closing Periods (days)",
-        min_value=0,
-        value=100,
-        step=1,
-        help="Number of days for closing period to not have incomplete cycles at end of simulation time"
-    )
-
-    # Calculate total sim_time and display
-    sim_time = warmup_periods + analysis_periods + closing_periods
-    st.sidebar.info(f"**Total Simulation Time: {sim_time} days**")
-
-    depot_capacity = st.sidebar.number_input(
-        "Depot Capacity",
-        min_value=1,
-        value=10,
-        step=1,
-        help="Maximum number of parts that can be in the depot at once"
     )
 
     # NEW: Part condemn parameters
@@ -141,17 +68,25 @@ def render_sidebar():
     Special handling will be required if `condemn_cycle` is ever set to 1.
 
     - If it is set to 1
-        - edit df_manager._create_condition_a_df to not generate condemn value
+        - edit depot random function to not generate condemn value
         - a part can't be condemn and in condition A per mdoel logic
         - this function follows same logic as all other random cycle gen
     - edit engine.initialize_depot to handle condemnations
     - continue list
     """
 
+    depot_capacity = st.sidebar.number_input(
+        "Depot Capacity",
+        min_value=1,
+        value=37,
+        step=1,
+        help="Maximum number of parts that can be in the depot at once"
+    )
+
     condemn_cycle = st.sidebar.number_input(
         "Condemn at Cycle",
         min_value=2,
-        value=20,
+        value=1000,
         step=1,
         help="Cycle number at which parts are condemned and replaced"
     )
@@ -186,7 +121,7 @@ def render_sidebar():
         "Mission Capable Rate",
         min_value=0.0,
         max_value=1.0,
-        value=0.60,
+        value=0.92,
         step=0.01,
         format="%.2f",
         help="The percentage of total aircraft that start in Fleet with a part (0.0 to 1.0)"
@@ -246,32 +181,75 @@ def render_sidebar():
     st.sidebar.markdown("---")
     st.sidebar.subheader("Fleet: Fleet (Part on Aircraft)")
     if sone_dist == distribution_selections[0]: #Normal
-        sone_mean = st.sidebar.number_input("Fleet Mean Duration", value=365.0, min_value=1.0)
-        sone_sd = st.sidebar.number_input("Fleet Std Dev", value=10.0, min_value=0.01)
+        sone_mean = st.sidebar.number_input("Fleet Mean Duration", value=700.0, min_value=1.0)
+        sone_sd = st.sidebar.number_input("Fleet Std Dev", value=140.0, min_value=0.01)
     elif sone_dist == distribution_selections[1]: #Weibull
         sone_mean = st.sidebar.number_input("Fleet Shape", value=46.099, min_value=1.0)
-        sone_sd = st.sidebar.number_input("Fleet Scale", value=369.457, min_value=0.01)
-    
+        sone_sd = st.sidebar.number_input("Fleet Scale", value=36.946, min_value=0.01)
+
     st.sidebar.subheader("Depot")
     if sthree_dist == distribution_selections[0]: #Normal
-        sthree_mean = st.sidebar.number_input("Depot Mean Duration", value=90.0, min_value=1.0)
-        sthree_sd = st.sidebar.number_input("Depot Std Dev", value=1.2, min_value=0.01)
+        sthree_mean = st.sidebar.number_input("Depot Mean Duration", value=20.0, min_value=1.0)
+        sthree_sd = st.sidebar.number_input("Depot Std Dev", value=2.0, min_value=0.01)
     elif sthree_dist == distribution_selections[1]: #Weibull
-        sthree_mean = st.sidebar.number_input("Depot Shape", value=95.468, min_value=1.0)
-        sthree_sd = st.sidebar.number_input("Depot Scale", value=90.538, min_value=0.01)
+        sthree_mean = st.sidebar.number_input("Depot Shape", value=6.11, min_value=1.0)
+        sthree_sd = st.sidebar.number_input("Depot Scale", value=22.61, min_value=0.01)
+
+    # ----- INITIAL CONDITIONS
+    st.sidebar.header("Initial Conditions")
+
+    st.sidebar.markdown("**Buffer Time**")
+    double_periods = st.sidebar.checkbox(
+        "Add Buffer Time",
+        value=True,
+        help="If checked, The Fleet duration is multiplied by the buffer multiplier and split between the beginning and end of Simulation."
+    )
+
+    buffer_multiplier = st.sidebar.number_input(
+        "Buffer Multiplier",
+        min_value=1,
+        value=1,
+        step=1,
+        help="Multiplier for warmup and closing periods (e.g., 2 means warmup = sone_mean * 2)",
+        disabled=not double_periods
+    )
+
+    # Set warmup_periods and closing_periods based on user-controlled multiplier
+    warmup_periods = sone_mean * buffer_multiplier
+    closing_periods = sone_mean * buffer_multiplier
+
+    if double_periods:
+        sim_time = warmup_periods + analysis_periods + closing_periods
+    else:
+        sim_time = analysis_periods
+        warmup_periods = 0
+        closing_periods = 0
+
+    # Display total sim_time
+    st.sidebar.info(f"**Total Simulation Time: {sim_time} days**")
     
+    st.sidebar.markdown("**Plot Display**")
+    use_percentage_plots = st.sidebar.checkbox(
+        "Show Plots as Percentage",
+        value=True,
+        help="If checked, WIP plots display values as percentages. If unchecked, plots show raw counts."
+    )
+
     # Get randomization parameters
     fleet_rand_params = init_fleet_random()
     depot_rand_params = init_depot_random()
-    
+
     # Combine all parameters
     return {
         'render_plots': render_plots,
         'n_total_parts': n_total_parts,
         'n_total_aircraft': n_total_aircraft,
-        'sim_time': sim_time,
         'warmup_periods': warmup_periods,
         'analysis_periods': analysis_periods,
+        'closing_periods': closing_periods,
+        'sim_time': sim_time,
+        'use_buffer': double_periods,
+        'use_percentage_plots': use_percentage_plots,
         'depot_capacity': depot_capacity,
         'condemn_cycle': condemn_cycle,
         'condemn_depot_fraction': condemn_depot_fraction,
@@ -282,9 +260,9 @@ def render_sidebar():
         'parts_in_cond_f': int(parts_in_cond_f),
         'parts_in_cond_a': int(parts_in_cond_a),
         'sone_dist': sone_dist,
+        'sthree_dist': sthree_dist,
         'sone_mean': sone_mean,
         'sone_sd': sone_sd,
-        'sthree_dist': sthree_dist,
         'sthree_mean': sthree_mean,
         'sthree_sd': sthree_sd,
         # Fleet randomization

@@ -54,14 +54,15 @@ def calculate_simulation_stats(datasets):
     stats = {}
     
     # --- MICAP Stats (from wip_df) ---
-    wip_df = datasets.wip_df
-    if wip_df is not None and len(wip_df) > 0:
-        micap_all = wip_df['aircraft_micap']
-        micap_nonzero = wip_df[wip_df['aircraft_micap'] > 0]['aircraft_micap']
+    df = datasets.wip_ac_raw
+    if df is not None and len(df) > 0:
+        micap_all = df['micap']
+        micap_nonzero = df[df['micap'] > 0]['micap']
         
         stats['micap'] = {
-            'avg_with_zeros': micap_all.mean(),
+            'avg_with_zeros': micap_all.mean(), # average w/ no-micap days included
             'count_all': len(micap_all),
+            # average micap including days where at least one MICAP existed
             'avg_no_zeros': micap_nonzero.mean() if len(micap_nonzero) > 0 else np.nan,
             'count_nonzero': len(micap_nonzero),
             'max_micap': micap_all.max(),
@@ -91,16 +92,17 @@ def calculate_simulation_stats(datasets):
     return stats
 
 
-def render_stats_tab(datasets):
+ # POSTSIM CLASS - NEW: render_stats_tab now takes post_sim
+def render_stats_tab(post_sim):
     """
     Render statistics in Tab 1 of main.py.
     
     Parameters
     ----------
-    datasets : DataSets
-        Contains all simulation data
+    post_sim : PostSim
+        PostSim object containing pre-computed stats
     """
-    stats = calculate_simulation_stats(datasets)
+    stats = post_sim.stats
     
     # --- MICAP Statistics ---
     st.subheader("📊 MICAP Statistics")
@@ -147,3 +149,45 @@ def render_stats_tab(datasets):
                 st.metric("Max", f"{d['max']:.2f}")
             
             st.markdown("---")
+
+
+
+def calculate_multi_run_averages(datasets):
+    """
+    Compute averages for multi-model results (for a single run).
+    """
+    wip_ac_raw = datasets.wip_ac_raw
+    wip_raw = datasets.wip_raw
+    if wip_ac_raw is None or len(wip_ac_raw) == 0 or wip_raw is None or len(wip_raw) == 0:
+        return {
+            'avg_micap': np.nan,
+            'avg_fleet': np.nan,
+            'avg_cd_f': np.nan,
+            'avg_depot': np.nan,
+            'avg_cd_a': np.nan,
+            'count': 0
+        }
+    return {
+        'avg_micap': wip_ac_raw['micap'].mean(),
+        'avg_fleet': wip_raw['fleet'].mean(),
+        'avg_cd_f': wip_raw['condition_f'].mean(),
+        'avg_depot': wip_raw['depot'].mean(),
+        'avg_cd_a': wip_raw['condition_a'].mean(),
+        'count': len(wip_ac_raw)
+    }
+def render_multi_run_averages(post_sim):
+    """
+    Render the multi-model averages (used in multi_run) for a single run.
+    """
+    avgs = post_sim.multi_run_averages
+    st.subheader("Multi-Model Averages (Single Run)")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Avg MICAP", f"{avgs['avg_micap']:.2f}")
+        st.metric("Avg Fleet", f"{avgs['avg_fleet']:.2f}")
+    with col2:
+        st.metric("Avg Cd_F", f"{avgs['avg_cd_f']:.2f}")
+        st.metric("Avg Depot", f"{avgs['avg_depot']:.2f}")
+    with col3:
+        st.metric("Avg Cd_A", f"{avgs['avg_cd_a']:.2f}")
+        st.caption(f"n = {avgs['count']:,}")

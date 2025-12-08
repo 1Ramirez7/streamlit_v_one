@@ -26,6 +26,8 @@ class AircraftManager:
         self.active = {}  # {des_id: record} - dictionary storage for O(1) lookups
         self.next_des_id = 0  # ID counter (replacing current_des_row)
         self.ac_log = []  # Completed cycles
+        self.micap_count = 0  # Current count of aircraft in MICAP
+        self.micap_log = []   # Event log for MICAP entries/exits
     
     # ===========================================================
     # CORE OPERATIONS: ID GENERATION
@@ -43,7 +45,7 @@ class AircraftManager:
         return current_id
     
     # ===========================================================
-    # CORE OPERATIONS: ADD/CREATE AIRCRAFT EVENTS
+    # CORE OPERATIONS: ADD AIRCRAFT to ACTIVE DICTIONARY
     # ===========================================================
     
     def add_ac(self, des_id, ac_id, **fields):
@@ -68,7 +70,7 @@ class AircraftManager:
         record = {
             'des_id': des_id,
             'ac_id': ac_id,
-            'micap': fields.get('micap', ''),
+            'event_path': fields.get('event_path', ''),
             'fleet_duration': fields.get('fleet_duration', np.nan),
             'fleet_start': fields.get('fleet_start', np.nan),
             'fleet_end': fields.get('fleet_end', np.nan),
@@ -86,16 +88,17 @@ class AircraftManager:
         
         # Add to active dictionary
         self.active[des_id] = record
+        self.track_micap_wip(des_id, record['micap_start'], record['micap_end'])
         return {'success': True, 'error': None}
 
     def add_initial_ac(self, ac_id, **fields):
         """
         Add aircraft during initialization phase with auto-generated des_id.
         
-        This method is specifically for initial conditions (event_ic_izfs, etc.)
+        This method is specifically for initial conditions (event_ic_iz_fs_fe, etc.)
         where des_id needs to be auto-generated and incremented for each aircraft.
         Unlike add_ac(), this doesn't require to pass des_id.
-        
+        # i think its not needed now
         Args:
             ac_id (int): Aircraft identifier
             **fields: Additional fields matching des_df schema
@@ -111,7 +114,7 @@ class AircraftManager:
         record = {
             'des_id': des_id,
             'ac_id': ac_id,
-            'micap': fields.get('micap', ''),
+            'event_path': fields.get('event_path', ''),
             'fleet_duration': fields.get('fleet_duration', np.nan),
             'fleet_start': fields.get('fleet_start', np.nan),
             'fleet_end': fields.get('fleet_end', np.nan),
@@ -129,10 +132,11 @@ class AircraftManager:
         
         # Add to active dictionary
         self.active[des_id] = record
+        self.track_micap_wip(des_id, record['micap_start'], record['micap_end'])
         return {'des_id': des_id, 'success': True, 'error': None}
     
     # ===========================================================
-    # CORE OPERATIONS: READ/ACCESS AIRCRAFT
+    # CORE OPERATIONS: GET AIRCRAFT RECORD INFORMATION
     # ===========================================================
     
     def get_ac(self, des_id):
@@ -141,15 +145,7 @@ class AircraftManager:
         
         Args:
             des_id (int): DES event ID of the aircraft to retrieve
-
-        temp comment: this method replaces old way of searching des_id row in des_df
-            * OLD way - (searches entire DataFrame)
-            filled_des_df = self.df.des_df.iloc[:self.df.current_des_row]
-            ac_row = filled_des_df[filled_des_df['des_id'] == des_id].iloc[0]
-
-            * NEW way - fast (O(1) dictionary lookup)
-            active_aircraft = self.ac_manager.get_ac(des_id)
-            
+        
         Returns:
             dict or None: Aircraft record if found, None if not found
         """
@@ -165,7 +161,7 @@ class AircraftManager:
         return self.active.copy()
     
     # ===========================================================
-    # CORE OPERATIONS: MODIFY/UPDATE AIRCRAFT
+    # CORE OPERATIONS: MODIFY/UPDATE AIRCRAFT FIELDS
     # ===========================================================
     
     def update_fields(self, des_id, updates):
@@ -176,28 +172,21 @@ class AircraftManager:
             des_id (int): DES event ID of the aircraft to update
             updates (dict): Dictionary of {field_name: value} to update
         
-        Temp comment: 
-            * OLD way - using .at[] for DataFrame scalar assignment
-            self.df.des_df.at[row_idx, 'micap_duration'] = micap_duration
-            self.df.des_df.at[row_idx, 'install_end'] = s4_install_end
-            
-            * NEW way - direct dictionary update
-            self.ac_manager.update_fields(des_id, {
-                'micap_duration': micap_duration,
-                'install_end': s4_install_end
-            })
-
         Returns:
             bool: True if aircraft found and updated, False if aircraft not found
         """
         record = self.active.get(des_id)
         if record:
             record.update(updates)
+
+        if 'micap_start' in updates or 'micap_end' in updates: # need to add argument if start and end only ?
+            self.track_micap_wip(des_id, record['micap_start'], record['micap_end'])
+
             return True
         return False
     
     # ===========================================================
-    # CORE OPERATIONS: LIFECYCLE/COMPLETE AIRCRAFT CYCLES
+    # CORE OPERATIONS: CYCLE COMPLETE AIRCRAFT-REMOVE from ACTIVE
     # ===========================================================
     
     def complete_ac_cycle(self, des_id):
@@ -242,7 +231,7 @@ class AircraftManager:
         """
         if not self.active:
             return pd.DataFrame(columns=[  # returns empty df with proper column structure
-                'des_id', 'ac_id', 'micap', 
+                'des_id', 'ac_id', 'event_path', 
                 'fleet_duration', 'fleet_start', 'fleet_end',
                 'micap_duration', 'micap_start', 'micap_end',
                 'install_duration', 'install_start', 'install_end',
@@ -259,7 +248,7 @@ class AircraftManager:
         """
         if not self.ac_log:
             return pd.DataFrame(columns=[
-                'des_id', 'ac_id', 'micap', 
+                'des_id', 'ac_id', 'event_path', 
                 'fleet_duration', 'fleet_start', 'fleet_end',
                 'micap_duration', 'micap_start', 'micap_end',
                 'install_duration', 'install_start', 'install_end',
@@ -301,24 +290,18 @@ class AircraftManager:
         * will be used via data_manager.py. From an engineering perspective, ac_manager is like the chef that prepares the food
         * while data_manager is the waiter. We wouldn't have the customer go straight to chef for the food. 
 
-        all_ac_dict_df
-        Combines active aircraft and completed cycles into single DataFrame
-        for analysis and export. Replacement for df_manager.des_df.
 
         Sample Usage:
             engine.run: self.df.all_ac_dict_df = self.ac_manager.get_all_ac_data_df()
             Can then be used via data_manager class
             main.py: df_manager.all_ac_dict_df
-        
-        Returns:
-            pd.DataFrame: All aircraft with complete des_df schema
         """
         all_ac_dict = self.get_all_ac_data()
         
         if not all_ac_dict:
             # Return empty DataFrame with proper schema
             return pd.DataFrame(columns=[
-                'des_id', 'ac_id', 'micap', 
+                'des_id', 'ac_id', 'event_path', 
                 'fleet_duration', 'fleet_start', 'fleet_end',
                 'micap_duration', 'micap_start', 'micap_end',
                 'install_duration', 'install_start', 'install_end',
@@ -328,7 +311,68 @@ class AircraftManager:
         # Convert dictionary values to list for consistency with other export methods
         return pd.DataFrame(list(all_ac_dict.values()))
     
+
+    # ===========================================================
+    # WIP TRACKING & Dwonloading
+    # ===========================================================
+    def track_micap_wip(self, des_id, micap_start, micap_end):
+        """
+        Track MICAP wip
+
+        Usage in add_ac, add_initial_ac: 
+            self.track_micap_wip(des_id, record['micap_start'], record['micap_end'])
+        
+        Usage in update_fields:
+            if 'micap_start' in updates or 'micap_end' in updates:
+                self.track_micap_wip(des_id, record['micap_start'], record['micap_end'])
+        """
+        if pd.notna(micap_start) and pd.isna(micap_end):
+            self.micap_count += 1
+            self.micap_log.append({
+                'event_time': micap_start,
+                'event': 'ENTER_MICAP',
+                'des_id': des_id,
+                'micap_count': self.micap_count
+            })
+        
+        elif pd.notna(micap_start) and pd.notna(micap_end):
+            self.micap_count -= 1
+            self.micap_log.append({
+                'event_time': micap_end,
+                'event': 'EXIT_MICAP',
+                'des_id': des_id,
+                'micap_count': self.micap_count
+            })
+
+    def get_micap_log(self):
+        """
+        Get Condition A event history as DataFrame
+        """
+        if not self.micap_log:
+            return pd.DataFrame(columns=['event_time', 'micap_count'])
+        
+        return pd.DataFrame(self.micap_log)[['event_time', 'count']]
+
     # FUTURE POSSIBLE OPTIONS
     # ===========================================================
     # UTILITY: VALIDATION & MAINTENANCE 
     # ===========================================================
+
+    def get_wip_ac_end(self, sim_time, interval=5):
+        """
+        Get WIP counts over time with forward fill for aircraft.
+        """
+        from ds.helpers import compute_unified_wip_ac
+        
+        all_ac = self.get_all_ac_data()
+        return compute_unified_wip_ac(all_ac, sim_time, interval)
+    
+
+    def get_wip_ac_raw(self):
+        """
+        Get raw event counts (no interpolation/forward fill) for aircraft.
+        """
+        from ds.helpers import compute_raw_wip_ac
+        
+        all_ac = self.get_all_ac_data()
+        return compute_raw_wip_ac(all_ac)

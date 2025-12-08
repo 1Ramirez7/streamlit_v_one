@@ -27,7 +27,7 @@ class ConditionAState:
         self.lookup = {}              # {sim_id: record} for O(1) access
         self.condition_a_log = []     # Enter/exit events for WIP tracking
     
-    def add_part(self, sim_id, part_id, condition_a_start):
+    def add_part(self, sim_id, part_id, event_path, condition_a_start):
         """
         Add part to Condition A inventory.
         
@@ -49,9 +49,14 @@ class ConditionAState:
             return {'success': False, 'error': f'Duplicate sim_id {sim_id} in Condition A'}
         
         record = {
+            'event_time': condition_a_start,
+            'event': 'ENTER_COND_A',
             'sim_id': sim_id,
             'part_id': part_id,
-            'condition_a_start': condition_a_start
+            'event_path': event_path,
+            'condition_a_start': condition_a_start,
+            'condition_a_end': None,
+            'count': self.count_active()
         }
         
         self.queue.append(record)
@@ -63,6 +68,7 @@ class ConditionAState:
             'event': 'ENTER_COND_A',
             'sim_id': sim_id,
             'part_id': part_id,
+            'event_path': event_path,
             'condition_a_start': condition_a_start,
             'condition_a_end': None,
             'count': self.count_active()
@@ -108,6 +114,7 @@ class ConditionAState:
             'event': 'EXIT_COND_A',
             'sim_id': sim_id,
             'part_id': first_record['part_id'],
+            'event_path': first_record['event_path'],
             'condition_a_start': first_record['condition_a_start'],
             'condition_a_end': current_time,
             'count': self.count_active()
@@ -118,11 +125,8 @@ class ConditionAState:
     def count_active(self):
         """
         Count number of parts currently in Condition A.
-        
-        Returns
-        -------
-        int
-            Number of available parts
+
+        Number of available parts
         """
         return len(self.queue)
     

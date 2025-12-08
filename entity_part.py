@@ -68,7 +68,7 @@ class PartManager:
             'sim_id': sim_id,
             'part_id': part_id,
             'cycle': cycle,
-            'micap': fields.get('micap', ''),
+            'event_path': fields.get('event_path', ''),
             'fleet_start': fields.get('fleet_start', np.nan), # added np.nan to allow to just include filled variables when calling add_part that way not all variables need to be coded in call 
             'fleet_end': fields.get('fleet_end', np.nan),
             'fleet_duration': fields.get('fleet_duration', np.nan),
@@ -100,7 +100,7 @@ class PartManager:
         Add part during initialization phase with auto-generated sim_id.
         Look into this but i think it is not needed? 
         
-        This method is specifically for initial conditions (event_ic_izfs, etc.)
+        This method is specifically for initial conditions (event_ic_iz_fs_fe, etc.)
         where sim_id needs to be auto-generated and incremented for each part.
         Unlike add_part(), this doesn't require to pass sim_id.
         
@@ -121,7 +121,7 @@ class PartManager:
             'sim_id': sim_id,
             'part_id': part_id,
             'cycle': cycle,
-            'micap': fields.get('micap', ''),
+            'event_path': fields.get('event_path', ''),
             'fleet_start': fields.get('fleet_start', np.nan),
             'fleet_end': fields.get('fleet_end', np.nan),
             'fleet_duration': fields.get('fleet_duration', np.nan),
@@ -158,15 +158,7 @@ class PartManager:
         
         Args:
             sim_id (int): Simulation ID of the part to retrieve
-
-        temp comment: this method replaces old way of searching sim_id row in sim_df
-            * OLD way - (searches entire DataFrame)
-            filled_sim_df = self.df.sim_df.iloc[:self.df.current_sim_row]
-            part_row = filled_sim_df[filled_sim_df['sim_id'] == sim_id].iloc[0]
-
-            * NEW way - fast (O(1) dictionary lookup)
-            active_part = self.part_manager.get_part(sim_id)
-            
+        
         Returns:
             dict or None: Part record if found, None if not found
         """
@@ -192,16 +184,6 @@ class PartManager:
         Args:
             sim_id (int): Simulation ID of the part to update
             updates (dict): Dictionary of {field_name: value} to update
-        
-        Temp comment: 
-            * OLD way - using .at[] for DataFrame scalar assignment
-            self.df.sim_df.at[part_row_idx, 'condition_a_duration'] = condition_a_duration
-            self.df.sim_df.at[part_row_idx, 'install_duration'] = d4_install
-            
-            * NEW way - direct dictionary update
-            self.engine.part_manager.update_fields(sim_id, {
-            'condition_a_duration': condition_a_duration,
-            'install_duration': d4_install})
 
         Returns:
             bool: True if part found and updated, False if part not found
@@ -292,7 +274,7 @@ class PartManager:
         """
         if not self.active:
             return pd.DataFrame(columns=[ # returns empty df with proper column structure
-                'sim_id', 'part_id', 'cycle', 'micap', 'fleet_start', 'fleet_end', 
+                'sim_id', 'part_id', 'cycle', 'event_path', 'fleet_start', 'fleet_end', 
                 'fleet_duration', 'condition_f_start', 'condition_f_end', 
                 'condition_f_duration', 'depot_start', 'depot_end', 'depot_duration', 
                 'condition_a_start', 'condition_a_end', 'condition_a_duration', 
@@ -310,7 +292,7 @@ class PartManager:
         """
         if not self.part_log:
             return pd.DataFrame(columns=[
-                'sim_id', 'part_id', 'cycle', 'micap', 'fleet_start', 'fleet_end', 
+                'sim_id', 'part_id', 'cycle', 'event_path', 'fleet_start', 'fleet_end', 
                 'fleet_duration', 'condition_f_start', 'condition_f_end', 
                 'condition_f_duration', 'depot_start', 'depot_end', 'depot_duration', 
                 'condition_a_start', 'condition_a_end', 'condition_a_duration', 
@@ -349,31 +331,13 @@ class PartManager:
     def get_all_parts_data_df(self):
         """
         Export all parts (active + completed) as pandas DataFrame.
-        * all_parts_df will be the name of the dataframe. 
-        * will be use via data_manager.py. From an engineering perspective, part_manager is like the chef that prepares the food
-        * while data_manager is the waiter. We wouldn't have the custumor go straight to chef for the food. 
-
-        all_parts_df
-        Combines active parts and completed cycles into single DataFrame
-        for analysis and export. Replacement for df_manager.sim_df.
-
-        Sample Usage:
-            engine.run: 
-                self.datasets.build_part_ac_df(
-                    self.part_manager.get_all_parts_data_df,
-                    self.ac_manager.get_all_ac_data_df) # includes ac manager class
-            Can then be used via datasets class
-            main.py: datasets.all_parts_df
-        
-        Returns:
-            pd.DataFrame: All parts with complete sim_df schema
         """
         all_parts = self.get_all_parts_data()
         
         if not all_parts:
             # Return empty DataFrame with proper schema
             return pd.DataFrame(columns=[
-                'sim_id', 'part_id', 'cycle', 'micap', 'fleet_start', 'fleet_end', 
+                'sim_id', 'part_id', 'cycle', 'event_path', 'fleet_start', 'fleet_end', 
                 'fleet_duration', 'condition_f_start', 'condition_f_end', 
                 'condition_f_duration', 'depot_start', 'depot_end', 'depot_duration', 
                 'condition_a_start', 'condition_a_end', 'condition_a_duration', 
@@ -388,3 +352,22 @@ class PartManager:
     # ===========================================================
     # UTILITY: VALIDATION & MAINTENANCE 
     # ===========================================================
+
+    def get_wip_end(self, sim_time, interval=5):
+        """
+        Get WIP counts over time with forward fill.
+        """
+        from ds.helpers import compute_unified_wip
+        
+        all_parts = self.get_all_parts_data()
+        return compute_unified_wip(all_parts, sim_time, interval)
+    
+
+    def get_wip_raw(self):
+        """
+        Get raw WIP counts (no interpolation/forward fill).
+        """
+        from ds.helpers import compute_raw_wip
+        
+        all_parts = self.get_all_parts_data()
+        return compute_raw_wip(all_parts)
