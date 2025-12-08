@@ -369,7 +369,7 @@ def main() -> None:
     buffer_multiplier = st.sidebar.number_input(
         "Buffer Multiplier",
         min_value=1,
-        value=1,
+        value=2,
         step=1,
         help="Multiplier for warmup and closing periods (e.g., 2 means warmup = fleet_mean * 2)",
         disabled=not double_periods
