@@ -21,12 +21,12 @@ try:
 except ImportError:
     # Fall back to absolute imports (when run directly)
     from initialization import Initialization
-    from streamlit_app.ph_micap import MicapState
+    from ph_micap import MicapState
     from entity_part import PartManager
     from entity_ac import AircraftManager
     from ph_cda import ConditionAState
     from ph_new_part import NewPart
-    from streamlit_app.ds.data_science import DataSets
+    from ds.data_science import DataSets
     from post_sim import PostSim
 
 def append_event(current_event, new_event):

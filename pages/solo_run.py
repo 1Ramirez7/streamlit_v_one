@@ -17,18 +17,18 @@ warnings.simplefilter("ignore", category=FutureWarning)
 
 
 from simulation_engine import SimulationEngine
-from streamlit_app.ui.ui_components import render_sidebar
-from streamlit_app.ui.downloads import render_download_section
-from streamlit_app.ui.stats import render_stats_tab
+from ui.ui_components import render_sidebar
+from ui.downloads import render_download_section
+from ui.stats import render_stats_tab
 from utils import calculate_initial_allocation
-from streamlit_app.ui.dist_plots import render_duration_plots
-from streamlit_app.ui.wip_plots import render_wip_plots
+from ui.dist_plots import render_duration_plots
+from ui.wip_plots import render_wip_plots
 from session_manager import SessionStateManager
 from parameters import Parameters
 
 # this is to clear cache in excel files when engine.run is re-ran
 # need to figure out way for multi-runs see edit_id 754
-from streamlit_app.ui.downloads import generate_csv_zip, generate_excel 
+from ui.downloads import generate_csv_zip, generate_excel 
 
 def main() -> None:
     st.title("🔬 Solo Run - Discrete Event Simulation")
@@ -143,7 +143,7 @@ def main() -> None:
                 render_stats_tab(post_sim)
 
                 # === Multi-Model Averages (for consistency with multi_run) ===
-                from streamlit_app.ui.stats import render_multi_run_averages
+                from ui.stats import render_multi_run_averages
                 render_multi_run_averages(post_sim)
 
             ############################
