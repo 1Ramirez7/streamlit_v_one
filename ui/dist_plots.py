@@ -2,11 +2,9 @@ import matplotlib.pyplot as plt
 import streamlit as st
 
 
-# === POSTSIM CLASS - NEW: render_duration_plots now takes post_sim ===
 def render_duration_plots(post_sim):
     """
     Render all duration comparison plots using pre-computed figures from PostSim.
-    This code was previously in main.py but move here since it made main.py harder to read sections
     """
     if not post_sim.dist_figs:
         st.info("Plot rendering is disabled. Check 'Render Plots' in sidebar to enable.")

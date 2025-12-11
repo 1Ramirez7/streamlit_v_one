@@ -26,8 +26,6 @@ class AircraftManager:
         self.active = {}  # {des_id: record} - dictionary storage for O(1) lookups
         self.next_des_id = 0  # ID counter (replacing current_des_row)
         self.ac_log = []  # Completed cycles
-        self.micap_count = 0  # Current count of aircraft in MICAP
-        self.micap_log = []   # Event log for MICAP entries/exits
     
     # ===========================================================
     # CORE OPERATIONS: ID GENERATION
@@ -88,7 +86,6 @@ class AircraftManager:
         
         # Add to active dictionary
         self.active[des_id] = record
-        self.track_micap_wip(des_id, record['micap_start'], record['micap_end'])
         return {'success': True, 'error': None}
 
     def add_initial_ac(self, ac_id, **fields):
@@ -132,7 +129,6 @@ class AircraftManager:
         
         # Add to active dictionary
         self.active[des_id] = record
-        self.track_micap_wip(des_id, record['micap_start'], record['micap_end'])
         return {'des_id': des_id, 'success': True, 'error': None}
     
     # ===========================================================
@@ -178,10 +174,6 @@ class AircraftManager:
         record = self.active.get(des_id)
         if record:
             record.update(updates)
-
-        if 'micap_start' in updates or 'micap_end' in updates: # need to add argument if start and end only ?
-            self.track_micap_wip(des_id, record['micap_start'], record['micap_end'])
-
             return True
         return False
     
@@ -310,55 +302,14 @@ class AircraftManager:
         
         # Convert dictionary values to list for consistency with other export methods
         return pd.DataFrame(list(all_ac_dict.values()))
-    
 
-    # ===========================================================
-    # WIP TRACKING & Dwonloading
-    # ===========================================================
-    def track_micap_wip(self, des_id, micap_start, micap_end):
-        """
-        Track MICAP wip
 
-        Usage in add_ac, add_initial_ac: 
-            self.track_micap_wip(des_id, record['micap_start'], record['micap_end'])
-        
-        Usage in update_fields:
-            if 'micap_start' in updates or 'micap_end' in updates:
-                self.track_micap_wip(des_id, record['micap_start'], record['micap_end'])
-        """
-        if pd.notna(micap_start) and pd.isna(micap_end):
-            self.micap_count += 1
-            self.micap_log.append({
-                'event_time': micap_start,
-                'event': 'ENTER_MICAP',
-                'des_id': des_id,
-                'micap_count': self.micap_count
-            })
-        
-        elif pd.notna(micap_start) and pd.notna(micap_end):
-            self.micap_count -= 1
-            self.micap_log.append({
-                'event_time': micap_end,
-                'event': 'EXIT_MICAP',
-                'des_id': des_id,
-                'micap_count': self.micap_count
-            })
 
-    def get_micap_log(self):
-        """
-        Get Condition A event history as DataFrame
-        """
-        if not self.micap_log:
-            return pd.DataFrame(columns=['event_time', 'micap_count'])
-        
-        return pd.DataFrame(self.micap_log)[['event_time', 'count']]
-
-    # FUTURE POSSIBLE OPTIONS
     # ===========================================================
     # UTILITY: VALIDATION & MAINTENANCE 
     # ===========================================================
 
-    def get_wip_ac_end(self, sim_time, interval=5):
+    def get_wip_ac_end(self, sim_time, interval):
         """
         Get WIP counts over time with forward fill for aircraft.
         """

@@ -1,18 +1,18 @@
 """
 main.py
 -------
-Landing page for DES Simulation - select Solo or Multi run mode.
+Landing page for DES Simulation - select Solo or Scenarios run mode.
 """
 import streamlit as st
 
 st.set_page_config(
-    page_title="DES Simulation",
+    page_title="DES",
     page_icon="✈️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-st.title("✈️ DES Simulation Runner")
+st.title("Discrete Event Simulation Model")
 st.markdown("### Aircraft Parts Lifecycle Simulation")
 st.markdown("---")
 
@@ -20,16 +20,15 @@ st.markdown("""
 Select a simulation mode to get started:
 
 - **Solo Run**: Run a single simulation with full visualization and detailed results
-- **Multi Run**: Run multiple simulations varying depot capacity and total parts
+- **Scenarios**: Run multiple simulations varying depot capacity and total parts
 """)
 
 col1, col2 = st.columns(2)
 
 with col1:
-    st.markdown("### 🔬 Solo Run")
+    st.markdown("### Solo Run")
     st.markdown("""
     - Single simulation execution
-    - Full parameter control
     - Detailed statistics and plots
     - WIP over time visualizations
     - Duration distribution plots
@@ -37,17 +36,21 @@ with col1:
     st.page_link("pages/solo_run.py", label="Go to Solo Run →", icon="🔬")
 
 with col2:
-    st.markdown("### 🔄 Multi Run")
+    st.markdown("### Scenarios")
     st.markdown("""
-    - Vary depot_capacity and n_total_parts
+    - Vary Depot Capacity and Total Parts
     - Compare multiple scenarios
     - Find optimal configurations
-    - Comparative charts and analysis
-    - Export results to Excel/ZIP
-    
-    ⚠️ *Note: Streamlit Cloud has a 2.8GB memory limit. Large parameter sweeps may crash the app. This deployment demonstrates capability — deploy locally or use a cloud service for production.*
+    - Fast Mode toggle for speed
     """)
-    st.page_link("pages/multi_run.py", label="Go to Multi Run →", icon="🔄")
+    st.page_link("pages/scenarios.py", label="Go to Scenarios →", icon="📊")
 
 st.markdown("---")
+
+st.warning("""
+**⚠️ Resource Limits:** Streamlit Community Cloud has resource limits (≈2.7GB memory, 2 cores max). 
+Large simulations may be throttled or stopped. For production use, deploy locally or use a dedicated cloud service.  
+[Streamlit documentation →](https://docs.streamlit.io/deploy/streamlit-community-cloud/manage-your-app)
+""")
+
 st.caption("Use the sidebar to navigate between pages.")

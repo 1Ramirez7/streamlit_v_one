@@ -17,7 +17,7 @@ try:
     from .ph_cda import ConditionAState
     from .ph_new_part import NewPart
     from .ds.data_science import DataSets
-    from .post_sim import PostSim  # === POSTSIM CLASS - NEW ===
+    from .post_sim import PostSim
 except ImportError:
     # Fall back to absolute imports (when run directly)
     from initialization import Initialization
@@ -56,7 +56,7 @@ class SimulationEngine:
         self.allocation = allocation
         self.active_depot: list = []
         
-        # NEW: Event-driven structures
+        # Event-driven structures
         self.event_heap = []  # Priority queue: (time, counter, event_type, entity_id)
         self.event_counter = 0  # FIFO tie-breaker for same-time events
         self.micap_state = MicapState()  # Manage MICAP aircraft
@@ -66,7 +66,7 @@ class SimulationEngine:
         self.new_part_state = NewPart(n_total_parts=params['n_total_parts'])  # Manage new parts on order
         self.datasets = DataSets(warmup_periods=params['warmup_periods'], closing_periods=params['closing_periods'], sim_time=params['sim_time'], use_buffer=params.get('use_buffer', False))
 
-        # Event tracking for progress display 777
+        # Event tracking for progress display
         self.event_counts = {
             'depot_complete': 0,
             'fleet_complete': 0,
@@ -76,7 +76,7 @@ class SimulationEngine:
             'part_condemn': 0,
             'total': 0
         }
-        self.progress_callback = None  # Callback for UI updates 777 end
+        self.progress_callback = None
     
     # ==========================================================================
     # STAGE DURATION FORMULAS
@@ -709,7 +709,7 @@ class SimulationEngine:
         # --- PATH 2: MICAP exists → Install directly ---
         else:
             # Use micap info fetch in micap_npa_rm.
-            first_micap = micap_npa_rm # do i need this if replace first_micap with micap_npa_rm
+            first_micap = micap_npa_rm # first_micap for backward comp.
             
             # Calculate install timing
             d4_install = 0
@@ -854,7 +854,7 @@ class SimulationEngine:
         # Schedule depot completion event (standard flow from here)
         self.schedule_event(d_end, 'depot_complete', sim_id)
 
-    def run(self, progress_callback=None): # , progress_callback=None 777 lone
+    def run(self, progress_callback=None):
         """
         Execute event-driven discrete-event simulation.
 
@@ -894,11 +894,11 @@ class SimulationEngine:
             if event_time > self.params['sim_time']:
                 break
             
-            # Track event processing 777
+            # Track event processing
             self.event_counts[event_type] = self.event_counts.get(event_type, 0) + 1
             self.event_counts['total'] += 1
             
-            # Update progress UI. callback provided 777
+            # Update progress UI if callback provided
             if self.progress_callback and self.event_counts['total'] % 100 == 0:
                 self.progress_callback(event_type, self.event_counts[event_type], 
                                     self.event_counts['total'])
@@ -935,9 +935,7 @@ class SimulationEngine:
         )
         self.datasets.filter_by_remove_days()
         
-        # === POSTSIM CLASS - NEW ===
-        # Create PostSim to compute all stats and figures inside engine.run()
-        # This ensures multi-scenario runs always get correct results tied to this run's params
+        # Create PostSim to compute all stats and figures
         post_sim = PostSim(
             datasets=self.datasets,
             event_counts=self.event_counts.copy(),

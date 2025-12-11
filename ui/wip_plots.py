@@ -14,7 +14,6 @@ def add_stats_box(ax, data, column_name):
             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
 
-# === POSTSIM CLASS - NEW: render_wip_plots now takes post_sim ===
 def render_wip_plots(post_sim):
     """
     Render individual WIP plots using pre-computed figures from PostSim.
@@ -201,25 +200,3 @@ def plot_condition_a_wip_over_time(wip_raw, n_total_parts, use_percentage=True):
     plt.tight_layout()
     return fig
 
-
-
-
-# Old plot code 
-
-# fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
-def spacer(wip_raw):
-    """Plot Depot WIP over time."""
-    fig, ax = plt.subplots(figsize=(10, 5))
-    
-    ax.step(wip_raw['sim_time'], wip_raw['depot'], linewidth=2, color='mediumseagreen')
-    ax.set_xlabel('Simulation Time (Days)')
-    ax.set_ylabel('Number of Parts')
-    ax.set_title('Depot WIP Over Time')
-    ax.grid(True, alpha=0.3)
-    ax.set_ylim(bottom=0)
-    plt.tight_layout()
-    
-    plt.tight_layout()
-    return fig
-
-# delete stop here

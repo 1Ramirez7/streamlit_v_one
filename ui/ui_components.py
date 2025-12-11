@@ -50,7 +50,7 @@ def render_sidebar():
         help="Number of days for analysis period"
     )
 
-    # NEW: Part condemn parameters
+    # Part condemn parameters
     st.sidebar.subheader("Part Condemn Parameters")
     
     """

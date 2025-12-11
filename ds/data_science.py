@@ -26,6 +26,7 @@ class DataSets:
         self.closing_periods = closing_periods
         self.sim_time = sim_time
         self.use_buffer = use_buffer
+        self.interval = 1
         # Add more datasets as needed
 
     def build_part_ac_df(self, get_all_parts_data_df, get_ac_df_func,
@@ -38,9 +39,9 @@ class DataSets:
         """
         self.all_parts_df = get_all_parts_data_df()
         self.all_ac_df = get_ac_df_func()
-        self.wip_df = get_wip_end(sim_time)
+        self.wip_df = get_wip_end(sim_time, self.interval)
         self.wip_raw = get_wip_raw()
-        self.wip_ac_df = get_wip_ac_end(sim_time)
+        self.wip_ac_df = get_wip_ac_end(sim_time, self.interval)
         self.wip_ac_raw = get_wip_ac_raw()
         
         # Only filter if buffer time is enabled
@@ -51,7 +52,7 @@ class DataSets:
         """
         Filter out rows where sim_time > remove_days or sim_time < warmup_periods.
         """
-        remove_days = self.sim_time - self.closing_periods - self.warmup_periods
+        remove_days = self.sim_time - self.closing_periods
         
         self.all_parts_df = self.all_parts_df[(self.all_parts_df['fleet_start'] >= self.warmup_periods) & (self.all_parts_df['fleet_start'] <= remove_days)]
         self.all_ac_df = self.all_ac_df[(self.all_ac_df['fleet_start'] >= self.warmup_periods) & (self.all_ac_df['fleet_start'] <= remove_days)]

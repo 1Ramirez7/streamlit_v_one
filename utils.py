@@ -110,7 +110,7 @@ def calculate_initial_allocation(params) -> dict:
         'micap_ac_ids': micap_ac_ids,
         'cond_a_cycles': cond_a_cycles,
         'depot_cycles': depot_cycles,
-        'cond_f_cycles': cond_f_cycles # NEW: Return randomized cycles for Condition F
+        'cond_f_cycles': cond_f_cycles
     }
 
 def render_allocation_inputs(n_total_parts, n_total_aircraft, mission_capable_rate, 

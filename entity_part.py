@@ -353,7 +353,7 @@ class PartManager:
     # UTILITY: VALIDATION & MAINTENANCE 
     # ===========================================================
 
-    def get_wip_end(self, sim_time, interval=5):
+    def get_wip_end(self, sim_time, interval):
         """
         Get WIP counts over time with forward fill.
         """

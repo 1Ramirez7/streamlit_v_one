@@ -43,7 +43,7 @@ class SessionStateManager:
                 'datasets': None,
                 'validation_results': None,
                 'allocation': None,
-                'post_sim': None  # === POSTSIM CLASS - NEW ===
+                'post_sim': None
             }
     
     def has_run(self) -> bool:
@@ -67,7 +67,7 @@ class SessionStateManager:
             'datasets': datasets,
             'validation_results': validation_results,
             'allocation': allocation,
-            'post_sim': validation_results.get('post_sim')  # === POSTSIM CLASS - NEW ===
+            'post_sim': validation_results.get('post_sim')
         }
     
     def get_run(self) -> Dict[str, Any]:
@@ -96,7 +96,6 @@ class SessionStateManager:
         """Get just the allocation from the stored run."""
         return st.session_state.run_data['allocation']
     
-    # === POSTSIM CLASS - NEW ===
     def get_post_sim(self):
         """Get just the post_sim from the stored run."""
         return st.session_state.run_data.get('post_sim')
@@ -109,5 +108,5 @@ class SessionStateManager:
             'datasets': None,
             'validation_results': None,
             'allocation': None,
-            'post_sim': None  # === POSTSIM CLASS - NEW ===
+            'post_sim': None
         }

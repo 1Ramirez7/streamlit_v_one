@@ -68,7 +68,7 @@ class Initialization:
 
         self.eventm_ic_izca_cr()
 
-        self.eventm_ic_fe_cf() # 
+        self.eventm_ic_fe_cf()
 
 
     # ------------------------------------------- 1 --------------------------------------------------
@@ -112,7 +112,6 @@ class Initialization:
             d1 = d1_base * random_multiplier
             
             # Timing calculations
-            s1_start = self.engine.calculate_fleet_duration()  # So not all aircraft start at sim day 1
             s1_start = 0  # So not all aircraft start at sim day 1
             s1_end = s1_start + d1
 
@@ -199,7 +198,6 @@ class Initialization:
             s3_end = s3_start + d3
             eventtype = "IC_IjD"
 
-            # spacer
             self.engine.part_manager.add_initial_part(
                 part_id=part_id,
                 cycle=cycle, # randomizing cycle
@@ -224,7 +222,6 @@ class Initialization:
         and assigns cycles from cond_f_cycles.
         """
         cond_f_part_ids = self.engine.allocation['cond_f_part_ids']
-        #cond_f_part_ids = list(range(23, 11)) # testing mismatch code
         cond_f_cycles = self.engine.allocation['cond_f_cycles']
         assert len(cond_f_part_ids) == len(cond_f_cycles), "Mismatch in Condition F part_ids and cycles"
 
@@ -253,7 +250,6 @@ class Initialization:
         Adds parts to part_manager and cond_a_state.
         """
         cond_a_part_ids = self.engine.allocation['cond_a_part_ids']
-        #cond_f_part_ids = list(range(23, 11)) # testing mismatch code
         cond_a_cycles = self.engine.allocation['cond_a_cycles']
         assert len(cond_a_part_ids) == len(cond_a_cycles), "Mismatch in Condition A part_ids and cycles"
 
@@ -452,5 +448,3 @@ class Initialization:
                 'event_path': add_event,
                 'condition_f_start': s1_end
             })
-
-# spacer

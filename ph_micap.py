@@ -7,7 +7,6 @@ approach while maintaining the same column names and sorting behavior.
 
 import pandas as pd
 import numpy as np
-import random
 from collections import deque
 
 
@@ -179,7 +178,7 @@ class MicapState:
         log_entry['event_time'] = current_time
         self.micap_log.append(log_entry)
         
-        return pd.Series(record)
+        return record  # Return dict directly, not pd.Series
     
     def count_active(self):
         """
@@ -220,6 +219,7 @@ class MicapState:
         """
         Get MICAP event summary with minimal fields for WIP tracking.
         
+        NOTE: not in use now, just for debugging
         Returns
         -------
         pd.DataFrame

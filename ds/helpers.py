@@ -2,14 +2,14 @@ import pandas as pd
 import numpy as np
 
 
-def compute_unified_wip(all_parts, sim_time, interval=5):
+def compute_unified_wip(all_parts, sim_time, interval):
     """
     Compute WIP counts over time with forward fill from all_parts dictionary.
     
     Args:
         all_parts (dict): Dictionary {sim_id: record} from get_all_parts_data()
         sim_time (int/float): End time of simulation
-        interval (int): Time interval for sampling (default: 5)
+        interval (int): Time interval for sampling
     """
     time_index = np.arange(0, sim_time + interval, interval)
     
@@ -173,14 +173,14 @@ def compute_raw_wip(all_parts):
 # AIRCRAFT WIP HELPERS
 # ===========================================================
 
-def compute_unified_wip_ac(all_ac, sim_time, interval=5):
+def compute_unified_wip_ac(all_ac, sim_time, interval):
     """
     Compute unified WIP counts over time with forward fill from all_ac dictionary.
     
     Args:
         all_ac (dict): Dictionary {des_id: record} from get_all_ac_data()
         sim_time (int/float): End time of simulation
-        interval (int): Time interval for sampling (default: 5)
+        interval (int): Time interval for sampling
     """
     time_index = np.arange(0, sim_time + interval, interval)
     
