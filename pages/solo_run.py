@@ -133,7 +133,7 @@ def main() -> None:
                 render_stats_tab(post_sim)
 
                 # === Multi-Model Averages (for consistency with multi_run) ===
-                from streamlit_app.ui.stats import render_multi_run_averages
+                from ui.stats import render_multi_run_averages
                 render_multi_run_averages(post_sim)
 
             ############################

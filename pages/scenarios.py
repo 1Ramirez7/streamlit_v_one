@@ -21,19 +21,19 @@ import warnings
 warnings.simplefilter("ignore", category=FutureWarning)
 
 from parameters import Parameters
-from streamlit_app.ui.sc_sidebar import render_scenarios_sidebar
-from streamlit_app.ui.sc_loop import render_loop_params
-from streamlit_app.ui.sc_results import (
+from ui.sc_sidebar import render_scenarios_sidebar
+from ui.sc_loop import render_loop_params
+from ui.sc_results import (
     compute_summaries,
     display_best_metrics,
 )
-from streamlit_app.ui.sc_tabs import (
+from ui.sc_tabs import (
     render_charts_tab,
     render_all_metrics_tab,
     render_full_data_tab,
     close_all_figures,
 )
-from streamlit_app.sc_utils import (
+from sc_utils import (
     run_single_simulation,
     run_single_simulation_fast,
     generate_analysis_text,

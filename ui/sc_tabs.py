@@ -4,7 +4,7 @@ Stores the code for scenario TABs
 import streamlit as st
 import matplotlib.pyplot as plt
 
-from streamlit_app.ui.sc_results import get_metrics_list, create_metric_plot
+from ui.sc_results import get_metrics_list, create_metric_plot
 
 
 def render_charts_tab(df, depots, parts_unique):
